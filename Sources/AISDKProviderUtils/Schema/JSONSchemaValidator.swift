@@ -537,6 +537,7 @@ struct JSONSchemaValidator: Sendable {
         return !components.path.isEmpty
     }
 
+#if canImport(Darwin) || canImport(Glibc)
     private func isValidIPv4(_ string: String) -> Bool {
         var address = in_addr()
         return string.withCString { inet_pton(AF_INET, $0, &address) } == 1
@@ -546,6 +547,23 @@ struct JSONSchemaValidator: Sendable {
         var address = in6_addr()
         return string.withCString { inet_pton(AF_INET6, $0, &address) } == 1
     }
+#else
+    private func isValidIPv4(_ string: String) -> Bool {
+        let parts = string.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        for part in parts {
+            guard let val = Int(part), (0...255).contains(val), String(val) == part else { return false }
+        }
+        return true
+    }
+
+    private func isValidIPv6(_ string: String) -> Bool {
+        guard string.contains(":") else { return false }
+        let parts = string.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count >= 3 && parts.count <= 8 else { return false }
+        return true
+    }
+#endif
 
     private func isValidDateTime(_ string: String) -> Bool {
         let formatter = ISO8601DateFormatter()
