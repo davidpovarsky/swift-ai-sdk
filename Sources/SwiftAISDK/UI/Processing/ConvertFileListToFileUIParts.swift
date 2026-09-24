@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /**
  Converts file URLs into `FileUIPart` values.
@@ -40,6 +42,7 @@ private func convertFileURLToFileUIPart(_ fileURL: URL) throws -> FileUIPart {
 }
 
 private func inferMediaType(for fileURL: URL, data: Data) -> String {
+    #if canImport(UniformTypeIdentifiers)
     if let resourceValues = try? fileURL.resourceValues(forKeys: [.contentTypeKey]),
        let contentType = resourceValues.contentType,
        let mediaType = contentType.preferredMIMEType {
@@ -49,6 +52,7 @@ private func inferMediaType(for fileURL: URL, data: Data) -> String {
     if let mediaType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType {
         return mediaType
     }
+    #endif
 
     let signatures = imageMediaTypeSignatures + audioMediaTypeSignatures + videoMediaTypeSignatures
     if let mediaType = detectMediaType(data: data, signatures: signatures) {
