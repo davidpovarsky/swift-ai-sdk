@@ -164,7 +164,7 @@ private func openAIRealtimeDefaultFetch(_ request: URLRequest) async throws -> F
     let (data, response) = try await URLSession.shared.data(for: request)
     return FetchResponse(body: .data(data), urlResponse: response)
 #else
-    return try await withCheckedThrowingContinuation { continuation in
+    return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<FetchResponse, Error>) in
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
                 continuation.resume(throwing: error)

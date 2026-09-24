@@ -322,7 +322,7 @@ private struct OpenAIImageModelCore: Sendable {
 #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
             let (data, _) = try await URLSession.shared.data(from: url)
 #else
-            let data = try await withCheckedThrowingContinuation { continuation in
+            let data: Data = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
                 let task = URLSession.shared.dataTask(with: url) { data, response, error in
                     if let error {
                         continuation.resume(throwing: error)
