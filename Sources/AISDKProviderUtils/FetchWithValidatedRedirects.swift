@@ -90,6 +90,7 @@ private func defaultManualRedirectFetchFunction() -> FetchFunction {
             delegateQueue: nil
         )
 
+#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
         if #available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *) {
             let (bytes, response) = try await session.bytes(for: request)
             let stream = makeManualRedirectDataStream(
@@ -103,9 +104,25 @@ private func defaultManualRedirectFetchFunction() -> FetchFunction {
             let (data, response) = try await session.data(for: request)
             return FetchResponse(body: .data(data), urlResponse: response)
         }
+#else
+        defer { session.finishTasksAndInvalidate() }
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = session.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let response {
+                    continuation.resume(returning: FetchResponse(body: .data(data ?? Data()), urlResponse: response))
+                } else {
+                    continuation.resume(throwing: URLError(.unknown))
+                }
+            }
+            task.resume()
+        }
+#endif
     }
 }
 
+#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
 @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
 private func makeManualRedirectDataStream(
     from bytes: URLSession.AsyncBytes,
@@ -144,3 +161,4 @@ private func makeManualRedirectDataStream(
         }
     }
 }
+#endif
