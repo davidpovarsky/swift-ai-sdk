@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import AISDKProviderUtils
 
 public struct OpenAIWebSocketRequest: Sendable, Equatable {

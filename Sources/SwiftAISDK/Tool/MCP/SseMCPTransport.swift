@@ -9,6 +9,9 @@
  */
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import AISDKProvider
 import AISDKProviderUtils
 import EventSourceParser

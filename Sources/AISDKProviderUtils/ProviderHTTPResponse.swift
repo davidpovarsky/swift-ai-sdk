@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Represents the body of an HTTP response returned by a provider request.
 public enum ProviderHTTPResponseBody: Sendable {
