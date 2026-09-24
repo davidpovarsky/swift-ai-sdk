@@ -1,3 +1,6 @@
+#if canImport(CoreFoundation)
+import CoreFoundation
+#endif
 import Foundation
 import AISDKProvider
 import AISDKProviderUtils
@@ -69,9 +72,15 @@ func embedTelemetryJSONString(from rawValue: Any?) -> String {
     }
 
     if let number = value as? NSNumber {
+#if canImport(CoreFoundation)
         if CFGetTypeID(number) == CFBooleanGetTypeID() {
             return number.boolValue ? "true" : "false"
         }
+#else
+        if String(cString: number.objCType) == "c" {
+            return number.boolValue ? "true" : "false"
+        }
+#endif
         return normalizeNumberString(number.doubleValue)
     }
 

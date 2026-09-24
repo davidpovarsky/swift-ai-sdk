@@ -1,3 +1,6 @@
+#if canImport(CoreFoundation)
+import CoreFoundation
+#endif
 import AISDKProvider
 import Foundation
 
@@ -378,6 +381,7 @@ func parseLiteralDef(_ def: ZodLiteralDef) -> JsonSchemaObject {
             "const": .number(Double(number)),
         ]
     case let number as NSNumber:
+#if canImport(CoreFoundation)
         if CFGetTypeID(number) == CFBooleanGetTypeID() {
             let boolValue = number.boolValue
             return [
@@ -390,6 +394,20 @@ func parseLiteralDef(_ def: ZodLiteralDef) -> JsonSchemaObject {
                 "const": .number(number.doubleValue),
             ]
         }
+#else
+        if String(cString: number.objCType) == "c" {
+            let boolValue = number.boolValue
+            return [
+                "type": .string("boolean"),
+                "const": .bool(boolValue),
+            ]
+        } else {
+            return [
+                "type": .string("number"),
+                "const": .number(number.doubleValue),
+            ]
+        }
+#endif
     case is [Any]:
         return ["type": .string("array")]
     case is [String: Any]:

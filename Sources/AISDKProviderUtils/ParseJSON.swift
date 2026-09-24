@@ -1,3 +1,6 @@
+#if canImport(CoreFoundation)
+import CoreFoundation
+#endif
 import Foundation
 import AISDKProvider
 
@@ -134,9 +137,15 @@ public func jsonValue(from value: Any) throws -> JSONValue {
     if let number = value as? NSNumber {
         // Detect actual JSON booleans using CFBoolean type check
         // JSONSerialization returns __NSCFBoolean for true/false, __NSCFNumber for numbers
+#if canImport(CoreFoundation)
         if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
             return .bool(number.boolValue)
         }
+#else
+        if String(cString: number.objCType) == "c" {
+            return .bool(number.boolValue)
+        }
+#endif
         return .number(number.doubleValue)
     }
 

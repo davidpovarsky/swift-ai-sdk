@@ -1,3 +1,6 @@
+#if canImport(CoreFoundation)
+import CoreFoundation
+#endif
 import Foundation
 import AISDKProvider
 
@@ -199,9 +202,15 @@ private func numberJSONValue(from value: Any) -> JSONValue? {
     }
 
     if let number = value as? NSNumber {
+#if canImport(CoreFoundation)
         if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
             return .bool(number.boolValue)
         }
+#else
+        if String(cString: number.objCType) == "c" {
+            return .bool(number.boolValue)
+        }
+#endif
 
         let double = number.doubleValue
         guard double.isFinite else { return nil }

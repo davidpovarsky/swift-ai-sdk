@@ -1,3 +1,6 @@
+#if canImport(CoreFoundation)
+import CoreFoundation
+#endif
 import Foundation
 import AISDKProvider
 
@@ -42,11 +45,19 @@ extension JSONValue {
         case let string as String:
             self = .string(string)
         case let number as NSNumber:
+#if canImport(CoreFoundation)
             if CFGetTypeID(number) == CFBooleanGetTypeID() {
                 self = .bool(number.boolValue)
             } else {
                 self = .number(number.doubleValue)
             }
+#else
+            if String(cString: number.objCType) == "c" {
+                self = .bool(number.boolValue)
+            } else {
+                self = .number(number.doubleValue)
+            }
+#endif
         case _ as NSNull:
             self = .null
         default:
