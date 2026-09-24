@@ -1,5 +1,9 @@
+#if canImport(CoreFoundation)
 import CoreFoundation
+#endif
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /**
@@ -134,10 +138,14 @@ private func isJSONNumber(_ value: Any) -> Bool {
     switch value {
     case is Int, is Int8, is Int16, is Int32, is Int64,
          is UInt, is UInt8, is UInt16, is UInt32, is UInt64,
-         is Float, is Double, is CGFloat, is Decimal:
+         is Float, is Double, is Decimal:
         return true
     case let number as NSNumber:
+#if canImport(CoreFoundation)
         return CFGetTypeID(number) != CFBooleanGetTypeID()
+#else
+        return String(cString: number.objCType) != "c"
+#endif
     default:
         return false
     }
