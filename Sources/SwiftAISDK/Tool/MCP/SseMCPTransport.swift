@@ -71,6 +71,7 @@ extension URL {
 
  - Note: Requires macOS 12.0+ for streaming bytes API
  */
+#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
 public final class SseMCPTransport: MCPTransport, @unchecked Sendable {
     private let stateLock = NSLock()
@@ -453,6 +454,48 @@ public final class SseMCPTransport: MCPTransport, @unchecked Sendable {
         }
     }
 }
+#else
+public final class SseMCPTransport: MCPTransport, @unchecked Sendable {
+    public var onclose: (@Sendable () -> Void)?
+    public var onerror: (@Sendable (Error) -> Void)?
+    public var onmessage: (@Sendable (JSONRPCMessage) -> Void)?
+
+    public convenience init(config: MCPTransportConfig) throws {
+        try self.init(config: config, session: .shared)
+    }
+
+    internal init(config: MCPTransportConfig, session: URLSession) throws {
+        throw MCPClientError(message: "SseMCPTransport is not supported on this platform")
+    }
+
+    public convenience init(
+        url: String,
+        headers: [String: String]? = nil,
+        authProvider: (any OAuthClientProvider)? = nil
+    ) throws {
+        try self.init(url: url, headers: headers, authProvider: authProvider, session: .shared)
+    }
+
+    internal init(
+        url: String,
+        headers: [String: String]? = nil,
+        authProvider: (any OAuthClientProvider)? = nil,
+        session: URLSession
+    ) throws {
+        throw MCPClientError(message: "SseMCPTransport is not supported on this platform")
+    }
+
+    public func start() async throws {
+        throw MCPClientError(message: "SseMCPTransport is not supported on this platform")
+    }
+
+    public func send(message: JSONRPCMessage) async throws {
+        throw MCPClientError(message: "SseMCPTransport is not supported on this platform")
+    }
+
+    public func close() async throws {}
+}
+#endif
 
 /**
  Deserialize a line of text as a JSON-RPC message.

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import AISDKProvider
 import AISDKProviderUtils
 
@@ -316,7 +319,22 @@ private struct OpenAIImageModelCore: Sendable {
             guard let url = URL(string: urlString) else {
                 throw URLError(.badURL)
             }
+#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
             let (data, _) = try await URLSession.shared.data(from: url)
+#else
+            let data = try await withCheckedThrowingContinuation { continuation in
+                let task = URLSession.shared.dataTask(with: url) { data, response, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if let data {
+                        continuation.resume(returning: data)
+                    } else {
+                        continuation.resume(throwing: URLError(.badServerResponse))
+                    }
+                }
+                task.resume()
+            }
+#endif
             return UploadPart(filename: defaultFilename, contentType: "application/octet-stream", data: data)
         }
     }

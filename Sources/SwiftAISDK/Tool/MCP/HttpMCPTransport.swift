@@ -13,6 +13,7 @@ import AISDKProvider
 import AISDKProviderUtils
 import EventSourceParser
 
+#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
 public final class HttpMCPTransport: MCPTransport, @unchecked Sendable {
     private struct ReconnectionOptions: Sendable {
@@ -569,3 +570,46 @@ public final class HttpMCPTransport: MCPTransport, @unchecked Sendable {
         }
     }
 }
+#else
+public final class HttpMCPTransport: MCPTransport, @unchecked Sendable {
+    public var onclose: (@Sendable () -> Void)?
+    public var onerror: (@Sendable (Error) -> Void)?
+    public var onmessage: (@Sendable (JSONRPCMessage) -> Void)?
+
+    public convenience init(config: MCPTransportConfig) throws {
+        try self.init(config: config, session: .shared)
+    }
+
+    internal init(config: MCPTransportConfig, session: URLSession) throws {
+        throw MCPClientError(message: "HttpMCPTransport is not supported on this platform")
+    }
+
+    public convenience init(
+        url: String,
+        headers: [String: String]? = nil,
+        authProvider: OAuthClientProvider? = nil
+    ) throws {
+        try self.init(url: url, headers: headers, authProvider: authProvider, session: .shared)
+    }
+
+    internal init(
+        url: String,
+        headers: [String: String]? = nil,
+        authProvider: OAuthClientProvider? = nil,
+        session: URLSession
+    ) throws {
+        throw MCPClientError(message: "HttpMCPTransport is not supported on this platform")
+    }
+
+    public func start() async throws {
+        throw MCPClientError(message: "HttpMCPTransport is not supported on this platform")
+    }
+
+    public func send(message: JSONRPCMessage) async throws {
+        throw MCPClientError(message: "HttpMCPTransport is not supported on this platform")
+    }
+
+    public func close() async throws {}
+}
+#endif
+

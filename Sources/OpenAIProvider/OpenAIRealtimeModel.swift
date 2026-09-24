@@ -160,8 +160,23 @@ private struct OpenAIRealtimeClientSecretError: Error, LocalizedError, CustomStr
 }
 
 private func openAIRealtimeDefaultFetch(_ request: URLRequest) async throws -> FetchResponse {
+#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
     let (data, response) = try await URLSession.shared.data(for: request)
     return FetchResponse(body: .data(data), urlResponse: response)
+#else
+    return try await withCheckedThrowingContinuation { continuation in
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error {
+                continuation.resume(throwing: error)
+            } else if let response {
+                continuation.resume(returning: FetchResponse(body: .data(data ?? Data()), urlResponse: response))
+            } else {
+                continuation.resume(throwing: URLError(.unknown))
+            }
+        }
+        task.resume()
+    }
+#endif
 }
 
 private func openAIRealtimeWebSocketURL(baseURL: String, modelId: String) throws -> String {

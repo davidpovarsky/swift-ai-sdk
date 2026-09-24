@@ -91,6 +91,7 @@ public struct MCPTransportConfig: Sendable {
 
  - Note: SSE transport requires macOS 12.0+
  */
+#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
 public func createMcpTransport(config: MCPTransportConfig) throws -> MCPTransport {
     switch config.type {
@@ -106,6 +107,22 @@ public func createMcpTransport(config: MCPTransportConfig) throws -> MCPTranspor
         )
     }
 }
+#else
+public func createMcpTransport(config: MCPTransportConfig) throws -> MCPTransport {
+    switch config.type {
+    case "sse":
+        return try SseMCPTransport(config: config)
+
+    case "http":
+        return try HttpMCPTransport(config: config)
+
+    default:
+        throw MCPClientError(
+            message: "Unsupported or invalid transport configuration. If you are using a custom transport, make sure it implements the MCPTransport interface."
+        )
+    }
+}
+#endif
 
 /**
  Check if a value is a custom MCP transport instance (vs a config object).
