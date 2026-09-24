@@ -5,7 +5,9 @@ import FoundationNetworking
 import AISDKProvider
 import AISDKProviderUtils
 import GoogleProvider
+#if canImport(Security)
 import Security
+#endif
 
 //===----------------------------------------------------------------------===//
 //=== Upstream Reference ====================================================//

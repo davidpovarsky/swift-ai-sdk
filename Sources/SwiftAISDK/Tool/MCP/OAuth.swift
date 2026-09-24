@@ -2,8 +2,12 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
+#if canImport(Security)
 import Security
+#endif
 
 /**
  OAuth support for MCP transports.
