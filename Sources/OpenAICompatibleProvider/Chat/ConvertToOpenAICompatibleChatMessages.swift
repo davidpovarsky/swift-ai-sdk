@@ -3,10 +3,17 @@ import AISDKProvider
 import AISDKProviderUtils
 
 private func metadata(from providerOptions: SharedV3ProviderOptions?) -> [String: JSONValue] {
-    guard let providerOptions, let metadata = providerOptions["openaiCompatible"] else {
-        return [:]
+    guard let providerOptions else { return [:] }
+    var result: [String: JSONValue] = [:]
+    for (key, dict) in providerOptions {
+        let lower = key.lowercased()
+        if lower == "openaicompatible" || lower == "hanlin-openai-compatible" || lower.contains("openaicompatible") {
+            for (k, v) in dict {
+                result[k] = v
+            }
+        }
     }
-    return metadata
+    return result
 }
 
 private func mergeMetadata(_ base: [String: JSONValue], with extra: [String: JSONValue]) -> [String: JSONValue] {
@@ -199,18 +206,8 @@ public func convertToOpenAICompatibleChatMessages(
             ]
 
             var textAccumulator = ""
-            // Reasoning parts in assistant messages are accumulated and
-            // sent as a top-level `reasoning_content` field on the
-            // outgoing assistant message. This matches the upstream
-            // `@ai-sdk/openai-compatible` behavior and lets reasoning
-            // models (DeepSeek, Kimi, Qwen3, GLM, etc.) round-trip
-            // their prior turn's reasoning back to the provider for
-            // continuity. Per-provider field naming overrides (e.g.
-            // OpenRouter's `reasoning_details`) can still be applied
-            // by callers via the `openaiCompatible` providerOptions
-            // namespace, which `metadata(from:)` merges into the final
-            // payload below.
             var reasoningAccumulator = ""
+            var reasoningDetails: JSONValue? = nil
             var toolCalls: [[String: JSONValue]] = []
 
             for content in contents {
@@ -219,6 +216,19 @@ public func convertToOpenAICompatibleChatMessages(
                     textAccumulator.append(textPart.text)
                 case .reasoning(let reasoningPart):
                     reasoningAccumulator.append(reasoningPart.text)
+                    if let opts = reasoningPart.providerOptions {
+                        let meta = metadata(from: opts)
+                        if let details = meta["reasoning_details"] {
+                            reasoningDetails = details
+                        } else {
+                            for (_, dict) in opts {
+                                if let d = dict["reasoning_details"] {
+                                    reasoningDetails = d
+                                    break
+                                }
+                            }
+                        }
+                    }
                 case .toolCall(let call):
                     let arguments = try encodedJSONString(call.input)
                     var payload: [String: JSONValue] = [
@@ -246,12 +256,17 @@ public func convertToOpenAICompatibleChatMessages(
             if !reasoningAccumulator.isEmpty {
                 builder["reasoning_content"] = .string(reasoningAccumulator)
             }
+            if let reasoningDetails {
+                builder["reasoning_details"] = reasoningDetails
+            }
             if !toolCalls.isEmpty {
                 builder["tool_calls"] = .array(toolCalls.map(JSONValue.object))
             }
 
             for (key, value) in metadata(from: options) {
-                builder[key] = value
+                if key != "reasoning_details" || reasoningDetails == nil {
+                    builder[key] = value
+                }
             }
 
             messages.append(.object(builder))
@@ -444,6 +459,7 @@ public func convertToOpenAICompatibleChatMessages(
         case .assistant(let parts, let providerOptions):
             var text = ""
             var reasoning = ""
+            var reasoningDetails: JSONValue? = nil
             var toolCalls: [JSONValue] = []
 
             for part in parts {
@@ -452,6 +468,19 @@ public func convertToOpenAICompatibleChatMessages(
                     text += textPart.text
                 case .reasoning(let reasoningPart):
                     reasoning += reasoningPart.text
+                    if let opts = reasoningPart.providerOptions {
+                        let meta = metadata(from: opts)
+                        if let details = meta["reasoning_details"] {
+                            reasoningDetails = details
+                        } else {
+                            for (_, dict) in opts {
+                                if let d = dict["reasoning_details"] {
+                                    reasoningDetails = d
+                                    break
+                                }
+                            }
+                        }
+                    }
                 case .toolCall(let toolCall):
                     var payload: [String: JSONValue] = [
                         "id": .string(toolCall.toolCallId),
@@ -484,11 +513,16 @@ public func convertToOpenAICompatibleChatMessages(
             if !reasoning.isEmpty {
                 payload["reasoning_content"] = .string(reasoning)
             }
+            if let reasoningDetails {
+                payload["reasoning_details"] = reasoningDetails
+            }
             if !toolCalls.isEmpty {
                 payload["tool_calls"] = .array(toolCalls)
             }
             for (key, value) in metadata(from: providerOptions) {
-                payload[key] = value
+                if key != "reasoning_details" || reasoningDetails == nil {
+                    payload[key] = value
+                }
             }
             messages.append(.object(payload))
 

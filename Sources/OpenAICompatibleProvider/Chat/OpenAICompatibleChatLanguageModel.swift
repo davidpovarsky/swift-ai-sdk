@@ -191,8 +191,18 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
 
         let reasoning = choice.message.reasoningContent
             ?? (options.contract.usesReasoningFallbackInGenerate ? choice.message.reasoning : nil)
-        if let reasoning, !reasoning.isEmpty {
-            content.append(.reasoning(LanguageModelV4Reasoning(text: reasoning)))
+        let reasoningDetails = choice.message.reasoningDetails
+        if (reasoning != nil && !reasoning!.isEmpty) || reasoningDetails != nil {
+            let reasoningMetadata: SharedV4ProviderMetadata? = reasoningDetails.map { details in
+                [
+                    prepared.metadataKey: ["reasoning_details": details],
+                    "openaiCompatible": ["reasoning_details": details]
+                ]
+            }
+            content.append(.reasoning(LanguageModelV4Reasoning(
+                text: reasoning ?? "",
+                providerMetadata: reasoningMetadata
+            )))
         }
 
         if let toolCalls = choice.message.toolCalls {
@@ -291,6 +301,8 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
                 var isFirstChunk = true
                 var isActiveText = false
                 var isActiveReasoning = false
+                var accumulatedReasoningDetails: JSONValue? = nil
+                var hadAnyReasoning = false
                 var pendingToolCalls: [Int: PendingToolCall] = [:]
                 var forwardedToolCallIndices: Set<Int> = []
 
@@ -353,18 +365,35 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
                                 }
 
                                 if let delta = choice.delta {
-                                    if let reasoning = delta.reasoningContent ?? delta.reasoning, !reasoning.isEmpty {
+                                    if let details = delta.reasoningDetails {
+                                        accumulatedReasoningDetails = details
+                                    }
+
+                                    let deltaReasoning = delta.reasoningContent ?? delta.reasoning
+                                    let hasReasoningDelta = (deltaReasoning != nil && !deltaReasoning!.isEmpty)
+                                    let hasReasoningDetails = (delta.reasoningDetails != nil)
+
+                                    if hasReasoningDelta || hasReasoningDetails {
+                                        hadAnyReasoning = true
                                         if !isActiveReasoning {
                                             isActiveReasoning = true
                                             continuation.yield(.reasoningStart(id: "reasoning-0", providerMetadata: nil))
                                         }
-                                        continuation.yield(.reasoningDelta(id: "reasoning-0", delta: reasoning, providerMetadata: nil))
+                                        if let reasoning = deltaReasoning, !reasoning.isEmpty {
+                                            continuation.yield(.reasoningDelta(id: "reasoning-0", delta: reasoning, providerMetadata: nil))
+                                        }
                                     }
 
                                     if let text = delta.content, !text.isEmpty {
                                         if options.contract.usesV4StreamBlockLifecycle, isActiveReasoning {
                                             isActiveReasoning = false
-                                            continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: nil))
+                                            let reasoningMetadata: SharedV4ProviderMetadata? = accumulatedReasoningDetails.map { details in
+                                                [
+                                                    metadataKey: ["reasoning_details": details],
+                                                    "openaiCompatible": ["reasoning_details": details]
+                                                ]
+                                            }
+                                            continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: reasoningMetadata))
                                         }
                                         if !isActiveText {
                                             isActiveText = true
@@ -383,7 +412,13 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
                                     if let toolCallDeltas = delta.toolCalls {
                                         if options.contract.usesV4StreamBlockLifecycle, isActiveReasoning {
                                             isActiveReasoning = false
-                                            continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: nil))
+                                            let reasoningMetadata: SharedV4ProviderMetadata? = accumulatedReasoningDetails.map { details in
+                                                [
+                                                    metadataKey: ["reasoning_details": details],
+                                                    "openaiCompatible": ["reasoning_details": details]
+                                                ]
+                                            }
+                                            continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: reasoningMetadata))
                                         }
                                         for toolCallDelta in toolCallDeltas {
                                             try processToolCallDelta(
@@ -401,9 +436,17 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
                         }
                     }
 
+                    let reasoningMetadata: SharedV4ProviderMetadata? = accumulatedReasoningDetails.map { details in
+                        [
+                            metadataKey: ["reasoning_details": details],
+                            "openaiCompatible": ["reasoning_details": details]
+                        ]
+                    }
+
                     if options.contract.usesV4StreamBlockLifecycle {
                         if isActiveReasoning {
-                            continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: nil))
+                            isActiveReasoning = false
+                            continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: reasoningMetadata))
                         }
                         if isActiveText {
                             continuation.yield(.textEnd(
@@ -419,8 +462,18 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
                             ))
                         }
                         if isActiveReasoning {
-                            continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: nil))
+                            isActiveReasoning = false
+                            continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: reasoningMetadata))
                         }
+                    }
+
+                    if !hadAnyReasoning, let details = accumulatedReasoningDetails {
+                        let meta: SharedV4ProviderMetadata = [
+                            metadataKey: ["reasoning_details": details],
+                            "openaiCompatible": ["reasoning_details": details]
+                        ]
+                        continuation.yield(.reasoningStart(id: "reasoning-0", providerMetadata: nil))
+                        continuation.yield(.reasoningEnd(id: "reasoning-0", providerMetadata: meta))
                     }
 
                     for (index, pending) in pendingToolCalls.sorted(by: { $0.key < $1.key }) {
@@ -1350,6 +1403,7 @@ private struct OpenAICompatibleChatResponse: Codable {
             let content: String?
             let reasoningContent: String?
             let reasoning: String?
+            let reasoningDetails: JSONValue?
             let toolCalls: [ToolCall]?
 
             private enum CodingKeys: String, CodingKey {
@@ -1357,6 +1411,7 @@ private struct OpenAICompatibleChatResponse: Codable {
                 case content
                 case reasoningContent = "reasoning_content"
                 case reasoning
+                case reasoningDetails = "reasoning_details"
                 case toolCalls = "tool_calls"
             }
         }
@@ -1404,6 +1459,7 @@ private struct OpenAICompatibleChatStreamData: Codable, Sendable {
             let content: String?
             let reasoningContent: String?
             let reasoning: String?
+            let reasoningDetails: JSONValue?
             let toolCalls: [OpenAICompatibleChatChunkToolCallDelta]?
 
             private enum CodingKeys: String, CodingKey {
@@ -1411,6 +1467,7 @@ private struct OpenAICompatibleChatStreamData: Codable, Sendable {
                 case content
                 case reasoningContent = "reasoning_content"
                 case reasoning
+                case reasoningDetails = "reasoning_details"
                 case toolCalls = "tool_calls"
             }
         }
