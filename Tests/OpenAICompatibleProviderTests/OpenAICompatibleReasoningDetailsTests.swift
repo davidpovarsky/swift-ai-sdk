@@ -269,10 +269,11 @@ struct OpenAICompatibleReasoningDetailsTests {
             case .reasoningEnd(_, let metadata):
                 capturedReasoningMetadata = metadata
             case .toolCall(let toolCall):
+                let parsedInput = (try? JSONDecoder().decode(JSONValue.self, from: Data(toolCall.input.utf8))) ?? .string(toolCall.input)
                 capturedToolCalls.append(LanguageModelV4ToolCallPart(
                     toolCallId: toolCall.toolCallId,
                     toolName: toolCall.toolName,
-                    input: toolCall.input
+                    input: parsedInput
                 ))
             default:
                 break
@@ -311,7 +312,7 @@ struct OpenAICompatibleReasoningDetailsTests {
                         .toolResult(LanguageModelV4ToolResultPart(
                             toolCallId: "call-roundtrip-1",
                             toolName: "calc",
-                            output: .text("2")
+                            output: .text(value: "2")
                         ))
                     ],
                     providerOptions: nil
