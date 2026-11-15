@@ -27,6 +27,7 @@ public func collectToolApprovals(
 
     var toolCallsById: [String: TypedToolCall] = [:]
     var approvalRequestsById: [String: ToolApprovalRequest] = [:]
+    var approvalRequestCountsByCallId: [String: Int] = [:]
     var ambiguousCallIds: Set<String> = []
     var ambiguousApprovalIds: Set<String> = []
 
@@ -67,6 +68,9 @@ public func collectToolApprovals(
                     toolCallsById[toolCallPart.toolCallId] = typedCall
 
                 case let .toolApprovalRequest(approvalRequest):
+                    // Consent is unambiguous only with exactly one request for a call,
+                    // even if distinct request IDs have matching or missing responses.
+                    approvalRequestCountsByCallId[approvalRequest.toolCallId, default: 0] += 1
                     if approvalRequestsById[approvalRequest.approvalId] != nil {
                         ambiguousApprovalIds.insert(approvalRequest.approvalId)
                     }
@@ -103,6 +107,7 @@ public func collectToolApprovals(
 
         if ambiguousApprovalIds.contains(response.approvalId)
             || ambiguousCallIds.contains(approvalRequest.toolCallId)
+            || approvalRequestCountsByCallId[approvalRequest.toolCallId] != 1
             || responseCounts[response.approvalId] != 1
             || toolResultsByCallId.contains(approvalRequest.toolCallId) {
             continue

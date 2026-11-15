@@ -47,9 +47,9 @@ struct RawToolInputPropagationTests {
         )]
     }
 
-    private func parse(_ json: String, tools: ToolSet, repair: ToolCallRepairFunction? = nil) async -> TypedToolCall {
+    private func parse(_ json: String, tools: ToolSet, id: String = "c1", repair: ToolCallRepairFunction? = nil) async -> TypedToolCall {
         await parseToolCall(
-            toolCall: LanguageModelV3ToolCall(toolCallId: "c1", toolName: "echo", input: json),
+            toolCall: LanguageModelV3ToolCall(toolCallId: id, toolName: "echo", input: json),
             tools: tools, repairToolCall: repair, system: nil, messages: []
         )
     }
@@ -77,6 +77,131 @@ struct RawToolInputPropagationTests {
             finishReason: .init(unified: .stop),
             usage: LanguageModelV3Usage(inputTokens: .init(total: 1), outputTokens: .init(total: 1))
         )))
+    }
+
+    private func acceptedCall(_ json: String, tools: ToolSet, id: String = "c1", repaired: Bool) async -> TypedToolCall {
+        if repaired {
+            return await parse("invalid", tools: tools, id: id, repair: { options in
+                LanguageModelV3ToolCall(toolCallId: options.toolCall.toolCallId, toolName: "echo", input: json)
+            })
+        }
+        return await parse(json, tools: tools, id: id)
+    }
+
+    /// Exercise response conversion and actual persisted message decoding before resume.
+    private func resumeMessages(calls: [TypedToolCall], requests: [(id: String, call: TypedToolCall)],
+                                responses: [ToolApprovalResponse]) throws -> [ModelMessage] {
+        var content: [ContentPart] = calls.map { .toolCall($0, providerMetadata: nil) }
+        content += requests.map { .toolApprovalRequest(ToolApprovalRequestOutput(approvalId: $0.id, toolCall: $0.call)) }
+        var messages = toResponseMessages(content: content, tools: nil)
+        messages.append(.tool(ToolModelMessage(content: responses.map { .toolApprovalResponse($0) })))
+        return try JSONDecoder().decode([ModelMessage].self, from: JSONEncoder().encode(messages))
+    }
+
+    /// Uses the real public entry point in each mode, not the collector/executor alone.
+    private func resume(_ messages: [ModelMessage], tools: ToolSet, streaming: Bool) async throws {
+        if streaming {
+            let parts: [LanguageModelV3StreamPart] = [
+                .streamStart(warnings: []),
+                .finish(finishReason: .init(unified: .stop),
+                        usage: LanguageModelV3Usage(inputTokens: .init(total: 1), outputTokens: .init(total: 1)),
+                        providerMetadata: nil)
+            ]
+            let stream = AsyncThrowingStream<LanguageModelV3StreamPart, Error> { continuation in
+                parts.forEach { continuation.yield($0) }; continuation.finish()
+            }
+            let model = MockLanguageModelV3(doStream: .singleValue(LanguageModelV3StreamResult(stream: stream)))
+            let result: DefaultStreamTextResult<JSONValue, JSONValue> = try streamText(
+                model: .v3(model), system: nil, messages: messages, tools: tools
+            )
+            _ = try await result.collectFullStream()
+        } else {
+            let _: DefaultGenerateTextResult<JSONValue> = try await generateText(
+                model: .v3(finishModel()), tools: tools, messages: messages
+            )
+        }
+    }
+
+    @Test("distinct approval IDs for the same call fail closed in generateText and stream resume")
+    func multipleRequestsForOneCallNeverExecute() async throws {
+        for streaming in [false, true] {
+            for dynamic in [false, true] {
+                for repaired in [false, true] {
+                    // Two approvals; both mixed decision orders; or only one answered request.
+                    for decisions in [[true, true], [true, false], [false, true], [true]] {
+                        let recorder = Recorder()
+                        let tools = tools(recorder, dynamic: dynamic, approval: true)
+                        let json = samples.last!
+                        let call = await acceptedCall(json, tools: tools, repaired: repaired)
+                        #expect(call.invalid != true && call.isDynamic == dynamic && call.rawInput?.json == json)
+                        let responses = decisions.enumerated().map {
+                            ToolApprovalResponse(approvalId: "a\($0.offset + 1)", approved: $0.element)
+                        }
+                        let messages = try resumeMessages(calls: [call], requests: [("a1", call), ("a2", call)], responses: responses)
+                        let collected = collectToolApprovals(messages: messages)
+                        #expect(collected.approvedToolApprovals.isEmpty && collected.deniedToolApprovals.isEmpty)
+                        try await resume(messages, tools: tools, streaming: streaming)
+                        #expect(await recorder.values.isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test("one matching approval executes once with accepted or repaired static/dynamic raw input")
+    func singleRequestResumesExactlyOnce() async throws {
+        for streaming in [false, true] {
+            for dynamic in [false, true] {
+                for repaired in [false, true] {
+                    let recorder = Recorder()
+                    let tools = tools(recorder, dynamic: dynamic, approval: true)
+                    let json = samples.last!
+                    let call = await acceptedCall(json, tools: tools, repaired: repaired)
+                    let messages = try resumeMessages(calls: [call], requests: [("a1", call)], responses: [
+                        ToolApprovalResponse(approvalId: "a1", approved: true)
+                    ])
+                    let collected = collectToolApprovals(messages: messages)
+                    #expect(collected.approvedToolApprovals.count == 1)
+                    #expect(collected.approvedToolApprovals.first?.toolCall.isDynamic == dynamic)
+                    try await resume(messages, tools: tools, streaming: streaming)
+                    #expect(await recorder.values == [ToolCallRawInput(toolCallId: "c1", toolName: "echo", json: json)])
+                }
+            }
+        }
+    }
+
+    @Test("independent calls retain their own single approvals when another call is ambiguous")
+    func independentCallApprovalsStayIndependent() async throws {
+        for streaming in [false, true] {
+            for dynamic in [false, true] {
+                for repaired in [false, true] {
+                    for ambiguousFirst in [false, true] {
+                        let recorder = Recorder()
+                        let tools = tools(recorder, dynamic: dynamic, approval: true)
+                        let json = samples.last!
+                        let first = await acceptedCall(json, tools: tools, id: "c1", repaired: repaired)
+                        let second = await acceptedCall(json, tools: tools, id: "c2", repaired: repaired)
+                        var requests = [(id: "a1", call: first), (id: "b1", call: second)]
+                        var responses = [ToolApprovalResponse(approvalId: "a1", approved: true),
+                                         ToolApprovalResponse(approvalId: "b1", approved: true)]
+                        if ambiguousFirst {
+                            requests.append(("a2", first))
+                            responses.append(ToolApprovalResponse(approvalId: "a2", approved: false))
+                        }
+                        let messages = try resumeMessages(calls: [first, second], requests: requests, responses: responses)
+                        try await resume(messages, tools: tools, streaming: streaming)
+                        let values = await recorder.values
+                        let expectedIDs = ambiguousFirst ? ["c2"] : ["c1", "c2"]
+                        #expect(values.count == expectedIDs.count)
+                        let recorded = values.compactMap { $0 }.sorted { $0.toolCallId < $1.toolCallId }
+                        let expected = expectedIDs.map {
+                            ToolCallRawInput(toolCallId: $0, toolName: "echo", json: json)
+                        }
+                        #expect(recorded == expected)
+                    }
+                }
+            }
+        }
     }
 
     @Test("real parse and execute preserve final JSON for static and dynamic tools")
