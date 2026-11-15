@@ -4,6 +4,62 @@ import Testing
 
 @Suite("JSONSchemaValidator")
 struct JSONSchemaValidatorTests {
+    @Test("boolean schemas apply at the root and nested instance locations")
+    func booleanSchemasRejectAtRootAndNestedLocations() throws {
+        let values: [JSONValue] = [.null, .bool(false), .number(1), .string("😀"), .array([]), .object([:])]
+        for value in values {
+            #expect(!JSONSchemaValidator(schema: .bool(false)).validate(value: value).isEmpty)
+            #expect(JSONSchemaValidator(schema: .bool(true)).validate(value: value).isEmpty)
+        }
+        let object = JSONSchemaValidator(schema: .object([
+            "type": .string("object"), "properties": .object(["blocked": .bool(false)])
+        ]))
+        #expect(!object.validate(value: .object(["blocked": .null])).isEmpty)
+        #expect(object.validate(value: .object([:])).isEmpty)
+        let array = JSONSchemaValidator(schema: .object(["type": .string("array"), "items": .bool(false)]))
+        #expect(array.validate(value: .array([])).isEmpty)
+        #expect(!array.validate(value: .array([.null])).isEmpty)
+        let combined = JSONSchemaValidator(schema: .object(["allOf": .array([.bool(true), .bool(false)])]))
+        #expect(!combined.validate(value: .object([:])).isEmpty)
+    }
+
+    @Test("length counts Unicode scalars while regex ranges retain UTF-16 offsets")
+    func unicodeScalarLengthsDoNotCountUTF16UnitsOrGraphemeClusters() throws {
+        let one = JSONSchemaValidator(schema: .object([
+            "type": .string("string"), "minLength": .number(1), "maxLength": .number(1)
+        ]))
+        #expect(one.validate(value: .string("😀")).isEmpty)
+        #expect(one.validate(value: .string("א")).isEmpty)
+        #expect(!one.validate(value: .string("e\u{301}")).isEmpty)
+        #expect(!one.validate(value: .string("👨‍👩‍👧‍👦")).isEmpty)
+        #expect(!one.validate(value: .string("")).isEmpty)
+        let two = JSONSchemaValidator(schema: .object([
+            "type": .string("string"), "minLength": .number(2), "maxLength": .number(2)
+        ]))
+        #expect(two.validate(value: .string("e\u{301}")).isEmpty)
+        #expect(!two.validate(value: .string("😀")).isEmpty)
+        let pattern = JSONSchemaValidator(schema: .object([
+            "type": .string("string"), "minLength": .number(2), "maxLength": .number(2), "pattern": .string("^😀a$")
+        ]))
+        #expect(pattern.validate(value: .string("😀a")).isEmpty)
+    }
+
+    @Test("the public JSON Schema facade preserves boolean and Unicode validation")
+    func publicFacadeEnforcesFalseSchemaAndUnicodeScalarLength() async throws {
+        let unicode: Schema<JSONValue> = jsonSchema(.object([
+            "type": .string("string"), "maxLength": .number(1)
+        ]))
+        switch await unicode.validate("😀") {
+        case .success(let value): #expect(value == .string("😀"))
+        case .failure: Issue.record("The public facade rejected one Unicode code point")
+        }
+        let rejected: Schema<JSONValue> = jsonSchema(.bool(false))
+        switch await rejected.validate(["anything": 1]) {
+        case .success: Issue.record("The public facade admitted a false schema")
+        case .failure: break
+        }
+    }
+
     @Test("anyOf does not bypass type validation")
     func anyOfDoesNotBypassTypeValidation() async throws {
         let schema: JSONValue = .object([

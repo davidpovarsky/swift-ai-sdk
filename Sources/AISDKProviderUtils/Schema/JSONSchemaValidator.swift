@@ -39,6 +39,12 @@ struct JSONSchemaValidator: Sendable {
         schema: JSONValue,
         path: [String]
     ) -> [JSONSchemaValidationIssue] {
+        if case .bool(let allowed) = schema {
+            return allowed ? [] : [JSONSchemaValidationIssue(
+                path: path,
+                message: "Invalid input: the false schema rejects every value."
+            )]
+        }
         if let resolution = dereference(schema: schema, path: path) {
             switch resolution {
             case .resolved(let resolved):
@@ -431,7 +437,8 @@ struct JSONSchemaValidator: Sendable {
         path: [String]
     ) -> [JSONSchemaValidationIssue] {
         var issues: [JSONSchemaValidationIssue] = []
-        let length = string.utf16.count
+        // JSON Schema counts Unicode code points; NSRegularExpression ranges still use UTF-16.
+        let length = string.unicodeScalars.count
 
         if let minLength = schema["minLength"]?.doubleValue, length < Int(minLength) {
             issues.append(JSONSchemaValidationIssue(
@@ -449,7 +456,7 @@ struct JSONSchemaValidator: Sendable {
 
         if let pattern = schema["pattern"]?.stringValue,
            let regex = try? NSRegularExpression(pattern: pattern),
-           regex.firstMatch(in: string, range: NSRange(location: 0, length: length)) == nil {
+           regex.firstMatch(in: string, range: NSRange(location: 0, length: string.utf16.count)) == nil {
             issues.append(JSONSchemaValidationIssue(
                 path: path,
                 message: "Invalid input: string does not match required pattern."

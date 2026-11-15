@@ -1,5 +1,17 @@
 # Swift SDK design decisions
 
+## Boolean JSON Schemas and Unicode string length (2026-11-15)
+
+The existing shared validator follows JSON Schema2020-12 for these two assertions: `false`
+rejects every instance (also in nested property/items/applicator locations), while `true`
+accepts it; `minLength`/`maxLength` count Unicode code points. Swift `unicodeScalars.count`
+implements that count, whereas UTF-16 units and extended grapheme clusters do not.
+Foundation regex ranges continue using UTF-16 offsets. This correction does not claim full
+dialect/keyword/ref support or change the separate original tool-input numeric contract below.
+
+Authorities: [Core4.3.2](https://json-schema.org/draft/2020-12/json-schema-core#section-4.3.2),
+[Validation6.3.1–2](https://json-schema.org/draft/2020-12/json-schema-validation#section-6.3.1).
+
 ## Original accepted tool JSON for local executors (2026-11-15)
 
 Swift's `JSONValue.number(Double)` cannot preserve an original Int64 beyond 2^53,
