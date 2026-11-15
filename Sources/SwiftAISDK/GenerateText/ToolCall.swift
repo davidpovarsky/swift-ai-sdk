@@ -30,6 +30,9 @@ public struct StaticToolCall: Sendable {
     /// The input/arguments for the tool call.
     public let input: JSONValue
 
+    /// Original accepted JSON; nil when unavailable. Not authorization.
+    public let rawInput: ToolCallRawInput?
+
     /// Whether the tool was executed by the provider.
     public let providerExecuted: Bool?
 
@@ -50,12 +53,14 @@ public struct StaticToolCall: Sendable {
         title: String? = nil,
         input: JSONValue,
         providerExecuted: Bool? = nil,
-        providerMetadata: ProviderMetadata? = nil
+        providerMetadata: ProviderMetadata? = nil,
+        rawInput: ToolCallRawInput? = nil
     ) {
         self.toolCallId = toolCallId
         self.toolName = toolName
         self.title = title
         self.input = input
+        self.rawInput = rawInput
         self.providerExecuted = providerExecuted
         self.providerMetadata = providerMetadata
         self.dynamic = false
@@ -80,6 +85,9 @@ public struct DynamicToolCall: Sendable {
 
     /// The input/arguments for the tool call.
     public let input: JSONValue
+
+    /// Original accepted JSON; nil when unavailable. Not authorization.
+    public let rawInput: ToolCallRawInput?
 
     /// Whether this is a dynamic tool call.
     /// For DynamicToolCall, this is always true.
@@ -110,12 +118,14 @@ public struct DynamicToolCall: Sendable {
         providerExecuted: Bool? = nil,
         providerMetadata: ProviderMetadata? = nil,
         invalid: Bool? = nil,
-        error: (any Error)? = nil
+        error: (any Error)? = nil,
+        rawInput: ToolCallRawInput? = nil
     ) {
         self.toolCallId = toolCallId
         self.toolName = toolName
         self.title = title
         self.input = input
+        self.rawInput = rawInput
         self.providerExecuted = providerExecuted
         self.providerMetadata = providerMetadata
         self.invalid = invalid
@@ -152,6 +162,13 @@ public enum TypedToolCall: Sendable {
         switch self {
         case .static(let call): return call.input
         case .dynamic(let call): return call.input
+        }
+    }
+
+    public var rawInput: ToolCallRawInput? {
+        switch self {
+        case .static(let call): call.rawInput
+        case .dynamic(let call): call.rawInput
         }
     }
 
@@ -202,4 +219,31 @@ public enum TypedToolCall: Sendable {
         case .dynamic(let call): return call.error
         }
     }
+}
+
+/// Revalidate persisted provenance against the current tool before local execution.
+/// Parsing/schema transforms must agree with the normalized input. This check is
+/// deliberately independent of consent, cancellation, and host authority checks.
+func validatedToolCallRawInput(_ call: TypedToolCall, tool: Tool) async throws -> ToolCallRawInput? {
+    try Task.checkCancellation()
+    guard call.invalid != true else { throw RawToolInputError.invalid }
+    guard let raw = call.rawInput else { return nil }
+    guard raw.toolCallId == call.toolCallId, raw.toolName == call.toolName,
+          raw.json.utf8.count <= ToolCallRawInput.maximumUTF8Bytes,
+          call.isDynamic == (tool.type == .dynamic) else { throw RawToolInputError.invalid }
+    let parsed = await safeParseJSON(ParseJSONOptions(text: raw.json))
+    guard case .success(let original, _) = parsed, original == call.input else {
+        throw RawToolInputError.invalid
+    }
+    let validated = await safeValidateTypes(ValidateTypesOptions(value: original, schema: tool.inputSchema))
+    try Task.checkCancellation()
+    guard case .success(let accepted, _) = validated, accepted == original else {
+        throw RawToolInputError.invalid
+    }
+    return raw
+}
+
+enum RawToolInputError: Error, LocalizedError {
+    case invalid
+    var errorDescription: String? { "Tool input provenance is invalid or no longer matches the current tool schema." }
 }

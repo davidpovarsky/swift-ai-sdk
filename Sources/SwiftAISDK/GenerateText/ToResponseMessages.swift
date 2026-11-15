@@ -131,7 +131,9 @@ private func assistantContentPart(
             toolName: toolCall.toolName,
             input: toolCall.input,
             providerOptions: providerMetadata,
-            providerExecuted: toolCall.providerExecuted
+            providerExecuted: toolCall.providerExecuted,
+            rawInput: toolCall.rawInput,
+            dynamic: toolCall.isDynamic ? true : nil
         )
         return .toolCall(toolCallPart)
 

@@ -27,6 +27,8 @@ public func collectToolApprovals(
 
     var toolCallsById: [String: TypedToolCall] = [:]
     var approvalRequestsById: [String: ToolApprovalRequest] = [:]
+    var ambiguousCallIds: Set<String> = []
+    var ambiguousApprovalIds: Set<String> = []
 
     for message in messages {
         guard case .assistant(let assistantMessage) = message else { continue }
@@ -39,18 +41,35 @@ public func collectToolApprovals(
             for part in parts {
                 switch part {
                 case let .toolCall(toolCallPart):
-                    let typedCall = TypedToolCall.static(
-                        StaticToolCall(
+                    let typedCall: TypedToolCall
+                    if toolCallPart.dynamic == true {
+                        typedCall = .dynamic(DynamicToolCall(
                             toolCallId: toolCallPart.toolCallId,
                             toolName: toolCallPart.toolName,
                             input: toolCallPart.input,
                             providerExecuted: toolCallPart.providerExecuted,
-                            providerMetadata: toolCallPart.providerOptions
-                        )
-                    )
+                            providerMetadata: toolCallPart.providerOptions,
+                            rawInput: toolCallPart.rawInput
+                        ))
+                    } else {
+                        typedCall = .static(StaticToolCall(
+                            toolCallId: toolCallPart.toolCallId,
+                            toolName: toolCallPart.toolName,
+                            input: toolCallPart.input,
+                            providerExecuted: toolCallPart.providerExecuted,
+                            providerMetadata: toolCallPart.providerOptions,
+                            rawInput: toolCallPart.rawInput
+                        ))
+                    }
+                    if toolCallsById[toolCallPart.toolCallId] != nil {
+                        ambiguousCallIds.insert(toolCallPart.toolCallId)
+                    }
                     toolCallsById[toolCallPart.toolCallId] = typedCall
 
                 case let .toolApprovalRequest(approvalRequest):
+                    if approvalRequestsById[approvalRequest.approvalId] != nil {
+                        ambiguousApprovalIds.insert(approvalRequest.approvalId)
+                    }
                     approvalRequestsById[approvalRequest.approvalId] = approvalRequest
 
                 default:
@@ -70,13 +89,22 @@ public func collectToolApprovals(
     var approved: [CollectedToolApproval] = []
     var denied: [CollectedToolApproval] = []
 
+    var responseCounts: [String: Int] = [:]
+    for part in toolMessage.content {
+        if case .toolApprovalResponse(let response) = part {
+            responseCounts[response.approvalId, default: 0] += 1
+        }
+    }
     for part in toolMessage.content {
         guard case .toolApprovalResponse(let response) = part else { continue }
         guard let approvalRequest = approvalRequestsById[response.approvalId] else {
             continue
         }
 
-        if toolResultsByCallId.contains(approvalRequest.toolCallId) {
+        if ambiguousApprovalIds.contains(response.approvalId)
+            || ambiguousCallIds.contains(approvalRequest.toolCallId)
+            || responseCounts[response.approvalId] != 1
+            || toolResultsByCallId.contains(approvalRequest.toolCallId) {
             continue
         }
 

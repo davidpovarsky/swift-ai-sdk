@@ -592,13 +592,19 @@ actor StreamTextActor {
             await emitToolOutputDenied(callId: pending.toolCallId, toolName: pending.toolName)
             return
         }
-        let options = ToolCallOptions(
-            toolCallId: pending.toolCallId,
-            messages: currentMessagesForApproval(),
-            abortSignal: nil,
-            experimentalContext: experimentalContext
-        )
         do {
+            try Task.checkCancellation()
+            guard !externalStopRequested else { throw CancellationError() }
+            let rawInput = try await validatedToolCallRawInput(pending.typedCall, tool: pending.tool)
+            try Task.checkCancellation()
+            guard !externalStopRequested else { throw CancellationError() }
+            let options = ToolCallOptions(
+                toolCallId: pending.toolCallId,
+                messages: currentMessagesForApproval(),
+                abortSignal: nil,
+                experimentalContext: experimentalContext,
+                rawInput: rawInput
+            )
             let result = try await execute(pending.input, options)
             await handleExecutionResult(result, pending: pending)
         } catch {

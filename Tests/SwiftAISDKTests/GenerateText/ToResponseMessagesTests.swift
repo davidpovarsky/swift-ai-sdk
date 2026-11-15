@@ -11,6 +11,26 @@ import AISDKProviderUtils
 
 @Suite("To Response Messages")
 struct ToResponseMessagesTests {
+    @Test("accepted raw input and dynamic identity remain local through provider prompt conversion")
+    func originalInputStaysLocal() async throws {
+        let raw = ToolCallRawInput(toolCallId: "c", toolName: "echo", json: "{\"n\":9007199254740993}")
+        let call = TypedToolCall.dynamic(DynamicToolCall(toolCallId: "c", toolName: "echo", input: .object(["n": .number(9_007_199_254_740_992)]), rawInput: raw))
+        let messages = toResponseMessages(content: [.toolCall(call, providerMetadata: nil)], tools: nil)
+        guard case .assistant(let message) = messages.first,
+              case .parts(let parts) = message.content,
+              case .toolCall(let part) = parts.first else { Issue.record("Missing tool call"); return }
+        #expect(part.rawInput == raw && part.dynamic == true)
+        let prompt = try await convertToLanguageModelPrompt(prompt: StandardizedPrompt(system: nil, messages: messages), supportedUrls: [:])
+        // Provider DTOs have no rawInput/dynamic extension: the wire input is unchanged.
+        let encoded = try JSONEncoder().encode(prompt)
+        let text = String(decoding: encoded, as: UTF8.self)
+        #expect(!text.contains("rawInput") && !text.contains("9007199254740993"))
+        #expect(try !stringifyForTelemetry(prompt).contains("rawInput"))
+        let promptV4 = try await convertToLanguageModelV4Prompt(prompt: StandardizedPrompt(system: nil, messages: messages), supportedUrls: [:])
+        let encodedV4 = String(decoding: try JSONEncoder().encode(promptV4), as: UTF8.self)
+        #expect(!encodedV4.contains("rawInput") && !encodedV4.contains("9007199254740993"))
+        #expect(try !stringifyForTelemetry(promptV4).contains("rawInput"))
+    }
     @Test("assistant message with text when no tool calls")
     func assistantMessageTextOnly() throws {
         let content: [ContentPart] = [

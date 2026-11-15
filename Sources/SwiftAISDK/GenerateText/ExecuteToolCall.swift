@@ -57,6 +57,11 @@ public func executeToolCall(
         attributes: spanAttributes ?? [:]
     ) { span in
         do {
+            try Task.checkCancellation()
+            guard abortSignal?() != true else { throw CancellationError() }
+            let rawInput = try await validatedToolCallRawInput(toolCall, tool: tool)
+            try Task.checkCancellation()
+            guard abortSignal?() != true else { throw CancellationError() }
             let stream = executeTool(
                 execute: execute,
                 input: input,
@@ -64,7 +69,8 @@ public func executeToolCall(
                     toolCallId: toolCallId,
                     messages: messages,
                     abortSignal: abortSignal,
-                    experimentalContext: experimentalContext
+                    experimentalContext: experimentalContext,
+                    rawInput: rawInput
                 )
             )
 

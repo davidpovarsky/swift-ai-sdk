@@ -309,6 +309,12 @@ public struct ToolCallPart: Sendable, Equatable, Codable {
     /// Arguments of the tool call. This is a JSON-serializable object that matches the tool's input schema.
     public let input: JSONValue
 
+    /// Local accepted-input provenance. Not sent to language model providers.
+    public let rawInput: ToolCallRawInput?
+
+    /// Local identity used when resuming approvals. Nil in legacy messages.
+    public let dynamic: Bool?
+
     /// Additional provider-specific metadata. They are passed through
     /// to the provider from the AI SDK and enable provider-specific
     /// functionality that can be fully encapsulated in the provider.
@@ -322,17 +328,21 @@ public struct ToolCallPart: Sendable, Equatable, Codable {
         toolName: String,
         input: JSONValue,
         providerOptions: ProviderOptions? = nil,
-        providerExecuted: Bool? = nil
+        providerExecuted: Bool? = nil,
+        rawInput: ToolCallRawInput? = nil,
+        dynamic: Bool? = nil
     ) {
         self.toolCallId = toolCallId
         self.toolName = toolName
         self.input = input
+        self.rawInput = rawInput
+        self.dynamic = dynamic
         self.providerOptions = providerOptions
         self.providerExecuted = providerExecuted
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, toolCallId, toolName, input, providerOptions, providerExecuted
+        case type, toolCallId, toolName, input, providerOptions, providerExecuted, rawInput, dynamic
     }
 
     public init(from decoder: Decoder) throws {
@@ -340,6 +350,8 @@ public struct ToolCallPart: Sendable, Equatable, Codable {
         toolCallId = try container.decode(String.self, forKey: .toolCallId)
         toolName = try container.decode(String.self, forKey: .toolName)
         input = try container.decode(JSONValue.self, forKey: .input)
+        rawInput = try container.decodeIfPresent(ToolCallRawInput.self, forKey: .rawInput)
+        dynamic = try container.decodeIfPresent(Bool.self, forKey: .dynamic)
         providerOptions = try container.decodeIfPresent(ProviderOptions.self, forKey: .providerOptions)
         providerExecuted = try container.decodeIfPresent(Bool.self, forKey: .providerExecuted)
     }
@@ -350,6 +362,8 @@ public struct ToolCallPart: Sendable, Equatable, Codable {
         try container.encode(toolCallId, forKey: .toolCallId)
         try container.encode(toolName, forKey: .toolName)
         try container.encode(input, forKey: .input)
+        try container.encodeIfPresent(rawInput, forKey: .rawInput)
+        try container.encodeIfPresent(dynamic, forKey: .dynamic)
         try container.encodeIfPresent(providerOptions, forKey: .providerOptions)
         try container.encodeIfPresent(providerExecuted, forKey: .providerExecuted)
     }

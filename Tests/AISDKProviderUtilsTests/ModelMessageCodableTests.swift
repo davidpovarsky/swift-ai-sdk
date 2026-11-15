@@ -8,6 +8,16 @@ import AISDKProvider
 @Suite("ModelMessage Codable")
 struct ModelMessageCodableTests {
 
+    @Test func originalToolInputRoundTripAndLegacyAbsence() throws {
+        let raw = ToolCallRawInput(toolCallId: "c", toolName: "echo", json: "{\"n\":9223372036854775807}")
+        let part = ToolCallPart(toolCallId: "c", toolName: "echo", input: .object(["n": .number(9_223_372_036_854_775_807)]), rawInput: raw, dynamic: true)
+        let message = ModelMessage.assistant(AssistantModelMessage(content: .parts([.toolCall(part)])))
+        #expect(try roundTrip(message) == message)
+        let legacy = Data(#"{"type":"tool-call","toolCallId":"c","toolName":"echo","input":{}}"#.utf8)
+        let decoded = try JSONDecoder().decode(ToolCallPart.self, from: legacy)
+        #expect(decoded.rawInput == nil && decoded.dynamic == nil)
+    }
+
     private func roundTrip(_ message: ModelMessage) throws -> ModelMessage {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

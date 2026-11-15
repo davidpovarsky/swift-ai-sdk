@@ -333,6 +333,24 @@ public enum NeedsApproval: Sendable {
     case conditional(@Sendable (JSONValue, ToolCallApprovalOptions) async throws -> Bool)
 }
 
+/// Original accepted JSON, bound to a call and tool. This is local execution
+/// provenance, not authorization. Executors revalidate it against the live schema.
+/// Never construct it by serializing the normalized `JSONValue`.
+public struct ToolCallRawInput: Sendable, Equatable, Codable {
+    public let toolCallId: String
+    public let toolName: String
+    public let json: String
+
+    /// Bounded independently of provider limits; no raw input is included in errors.
+    public static let maximumUTF8Bytes = 1_048_576
+
+    public init(toolCallId: String, toolName: String, json: String) {
+        self.toolCallId = toolCallId
+        self.toolName = toolName
+        self.json = json
+    }
+}
+
 /// Additional options that are sent into each tool call.
 public struct ToolCallOptions: Sendable {
     /// The ID of the tool call.
@@ -348,16 +366,22 @@ public struct ToolCallOptions: Sendable {
     /// Additional context (experimental).
     public let experimentalContext: JSONValue?
 
+    /// Accepted original bytes, checked at the SDK execution boundary. Nil for
+    /// legacy/incomplete input. Does not grant consent or host authority.
+    public let rawInput: ToolCallRawInput?
+
     public init(
         toolCallId: String,
         messages: [ModelMessage],
         abortSignal: (@Sendable () -> Bool)? = nil,
-        experimentalContext: JSONValue? = nil
+        experimentalContext: JSONValue? = nil,
+        rawInput: ToolCallRawInput? = nil
     ) {
         self.toolCallId = toolCallId
         self.messages = messages
         self.abortSignal = abortSignal
         self.experimentalContext = experimentalContext
+        self.rawInput = rawInput
     }
 }
 

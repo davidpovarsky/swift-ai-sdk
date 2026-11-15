@@ -162,6 +162,9 @@ public func parseToolCall(
                 throw error
             }
 
+            guard repairedToolCall.toolCallId == toolCall.toolCallId else {
+                throw RawToolInputError.invalid
+            }
             return try await doParseToolCall(toolCall: repairedToolCall, tools: tools)
         }
     } catch {
@@ -265,6 +268,10 @@ private func doParseToolCall(
     toolCall: LanguageModelV3ToolCall,
     tools: ToolSet
 ) async throws -> TypedToolCall {
+    try Task.checkCancellation()
+    guard toolCall.input.utf8.count <= ToolCallRawInput.maximumUTF8Bytes else {
+        throw RawToolInputError.invalid
+    }
     let toolName = toolCall.toolName
 
     guard let tool = tools[toolName] else {
@@ -308,6 +315,17 @@ private func doParseToolCall(
         }
     }
 
+    try Task.checkCancellation()
+    // Preserve only actual JSON whose parsed value agrees with schema acceptance.
+    // Empty legacy arguments and transforming schemas have no exact provenance.
+    let rawParsed = await safeParseJSON(ParseJSONOptions(text: toolCall.input))
+    let rawInput: ToolCallRawInput?
+    if case .success(let original, _) = rawParsed, original == parsedValue {
+        rawInput = ToolCallRawInput(toolCallId: toolCall.toolCallId, toolName: toolName, json: toolCall.input)
+    } else {
+        rawInput = nil
+    }
+    try Task.checkCancellation()
     // Return static or dynamic tool call based on tool type
     if tool.type == .dynamic {
         return .dynamic(DynamicToolCall(
@@ -318,7 +336,8 @@ private func doParseToolCall(
             providerExecuted: toolCall.providerExecuted,
             providerMetadata: toolCall.providerMetadata,
             invalid: false,
-            error: nil
+            error: nil,
+            rawInput: rawInput
         ))
     } else {
         return .static(StaticToolCall(
@@ -327,7 +346,8 @@ private func doParseToolCall(
             title: tool.title,
             input: parsedValue,
             providerExecuted: toolCall.providerExecuted,
-            providerMetadata: toolCall.providerMetadata
+            providerMetadata: toolCall.providerMetadata,
+            rawInput: rawInput
         ))
     }
 }
