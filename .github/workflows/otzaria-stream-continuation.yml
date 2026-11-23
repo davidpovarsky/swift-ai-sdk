@@ -1,0 +1,82 @@
+name: Otzaria shared stream continuation
+on:
+  push:
+    branches: [codex/otzaria-tool-result-continuation-20261123]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: otzaria-shared-stream-continuation
+  cancel-in-progress: false
+jobs:
+  continuation:
+    runs-on: macos-26
+    timeout-minutes: 55
+    env:
+      AGENT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Record exact source and Swift toolchain
+        run: |
+          mkdir -p .evidence
+          git rev-parse HEAD > .evidence/source-sha.txt
+          swift --version > .evidence/swift-version.txt
+          xcodebuild -version > .evidence/xcode-version.txt
+          shasum -a 256 Sources/SwiftAISDK/GenerateText/StreamTextActor.swift Tests/SwiftAISDKTests/GenerateText/StreamTextToolResultContinuationTests.swift > .evidence/candidate-sha256.txt
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: otzaria-stream-macos26-${{ hashFiles('Package.resolved', '.evidence/swift-version.txt') }}
+      - name: Reproduce the two regressions on the original implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_path=Sources/SwiftAISDK/GenerateText/StreamTextActor.swift
+          cp "$source_path" .evidence/candidate-StreamTextActor.swift
+          trap 'cp .evidence/candidate-StreamTextActor.swift "$source_path"' EXIT
+          git show e7bf34111e603ca977becd007dd4e5bb109af857:"$source_path" > "$source_path"
+          shasum -a 256 "$source_path" > .evidence/baseline-sha256.txt
+          set +e
+          swift test --filter StreamTextToolResultContinuationTests --xunit-output .evidence/red.xml > .evidence/red.log 2>&1
+          baseline_exit=$?
+          set -e
+          echo "$baseline_exit" > .evidence/red-exit.txt
+          python3 - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+          root = pathlib.Path(".evidence")
+          code = int((root / "red-exit.txt").read_text())
+          assert code != 0, "Original source unexpectedly passed; reproduction not established"
+          document = ET.parse(root / "red.xml")
+          cases = document.findall(".//testcase")
+          failed = [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
+          names = [case.attrib.get("name", "") for case in failed]
+          assert len(cases) >= 5, f"Regression cases did not run: {len(cases)}"
+          assert len(failed) == 2, f"Expected only two baseline failures, got {names}"
+          assert any("twoToolConversation" in name or "Completed client tools" in name for name in names), names
+          assert any("toolErrorContinuesWithoutReexecution" in name or "completed tool error" in name for name in names), names
+          print("Original-source regression reproduced:", names)
+          PY
+          cp .evidence/candidate-StreamTextActor.swift "$source_path"
+          git diff --exit-code -- "$source_path"
+      - name: Verify corrected tool-result continuation and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --filter StreamTextToolResultContinuationTests --xunit-output .evidence/green.xml 2>&1 | tee .evidence/green.log
+          git diff --exit-code -- Sources Tests Package.swift Package.resolved
+      - name: Run original package regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --xunit-output .evidence/full-suite.xml 2>&1 | tee .evidence/full-suite.log
+          git diff --exit-code -- Sources Tests Package.swift Package.resolved
+      - name: Retain exact source and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: otzaria-stream-continuation-evidence
+          path: .evidence
+          if-no-files-found: error
+          retention-days: 14
