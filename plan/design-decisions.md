@@ -26,3 +26,39 @@ arbitrary-precision numeric validation. Applications with Int64/finite Double
 contracts must reject unsupported values themselves and fail closed if original
 input is absent. Verification and its platform limits are recorded in the Hanlin
 producer/consumer handoff; no Apple/device or root SwiftPM test pass is implied.
+
+## Google thought signatures in the V3 OpenAI-compatible path (2026-11-23)
+
+The V3 OpenAI-compatible adapter retains a received, nonempty
+`extra_content.google.thought_signature` as the opaque string
+`providerMetadata.google.thoughtSignature`. The wire provider identity is
+independent of the configured adapter name, including
+`hanlin-openai-compatible`. The original core response-message path carries
+that metadata into tool-call provider options; the V3 converter restores the
+same nested wire field on the next assistant tool-call message. Missing and
+empty signatures remain absent. V3 does not coerce arbitrary JSON values into
+signatures or synthesize a signature.
+
+The original tracker emits completed calls only in `flush()`. An optional
+metadata merge hook, nil by default, lets this V3 adapter retain metadata from
+later deltas before that emission. Only the relevant tool index is updated.
+Identical repeats are harmless; two nonempty signatures with different UTF-8
+bytes cause an invalid-response error before a completed call is emitted.
+There is no concatenation, normalization, cross-call borrowing or replacement.
+The Google documentation requires returning received signatures unchanged but
+does not define conflicting signatures on a single call. Rejecting that
+ambiguity is an explicit Swift contract, not a claimed upstream parity result.
+
+The V4 metadata namespace, converter and stream lifecycle retain their
+existing behavior. Other tracker callers keep the original first-delta
+metadata policy unless they opt into the hook. Tool dispatch, prompt/model
+selection, finish-stop continuation, validation, cancellation and package
+dependencies are unchanged.
+
+Reference: [Google thought signatures](https://ai.google.dev/gemini-api/docs/thought-signatures).
+The new original-SDK regressions cover response and streaming receipt,
+absent/empty baselines, late metadata after complete JSON, parallel isolation,
+duplicate/conflicting values, and the real `streamText` path through captured
+mocked fetch requests and two local tools with `finish_reason: stop`.
+Source preparation alone does not establish an Apple test pass or the HTTP
+cause of the observed Live failure; those remain separately qualified.

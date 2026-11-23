@@ -396,6 +396,100 @@ struct StreamingToolCallTrackerTests {
             ]
         )))
     }
+    @Test("Opt-in metadata merge receives a later delta before the single final call")
+    func mergesLateMetadataBeforeFlush() throws {
+        let collector = StreamPartCollector()
+        let tracker = StreamingToolCallTracker(
+            enqueue: collector.enqueue,
+            options: .init(
+                extractMetadata: { $0.providerMetadata },
+                buildToolCallProviderMetadata: { $0 },
+                mergeMetadata: { previous, incoming in previous ?? incoming }
+            )
+        )
+        try tracker.processDelta(.init(
+            index: 0, id: "late", type: "function",
+            function: .init(name: "lookup", arguments: "{}")
+        ))
+        #expect(collector.take() == [
+            .toolInputStart(id: "late", toolName: "lookup", providerMetadata: nil,
+                providerExecuted: nil, dynamic: nil, title: nil),
+            .toolInputDelta(id: "late", delta: "{}", providerMetadata: nil)
+        ])
+        try tracker.processDelta(.init(
+            index: 0, providerMetadata: ["google": ["thoughtSignature": "late-signature"]]
+        ))
+        #expect(collector.take().isEmpty)
+        tracker.flush()
+        #expect(collector.take() == [
+            .toolInputEnd(id: "late", providerMetadata: nil),
+            .toolCall(.init(toolCallId: "late", toolName: "lookup", input: "{}",
+                providerMetadata: ["google": ["thoughtSignature": "late-signature"]]))
+        ])
+        tracker.flush()
+        #expect(collector.take().isEmpty)
+    }
+
+    @Test("The default tracker retains its original first-delta metadata policy")
+    func defaultMetadataPolicyIsUnchanged() throws {
+        let collector = StreamPartCollector()
+        let tracker = StreamingToolCallTracker(
+            enqueue: collector.enqueue,
+            options: .init(extractMetadata: { $0.providerMetadata },
+                buildToolCallProviderMetadata: { $0 })
+        )
+        try tracker.processDelta(.init(
+            index: 0, id: "original", function: .init(name: "lookup", arguments: "{}"),
+            providerMetadata: ["provider": ["value": "first"]]
+        ))
+        _ = collector.take()
+        try tracker.processDelta(.init(
+            index: 0, providerMetadata: ["provider": ["value": "later"]]
+        ))
+        #expect(collector.take().isEmpty)
+        tracker.flush()
+        #expect(collector.take() == [
+            .toolInputEnd(id: "original", providerMetadata: nil),
+            .toolCall(.init(toolCallId: "original", toolName: "lookup", input: "{}",
+                providerMetadata: ["provider": ["value": "first"]]))
+        ])
+    }
+
+    @Test("A rejected metadata update propagates before any argument or event mutation")
+    func rejectedMetadataDoesNotMutateCall() throws {
+        enum Conflict: Error { case rejected }
+        let collector = StreamPartCollector()
+        let tracker = StreamingToolCallTracker(
+            enqueue: collector.enqueue,
+            options: .init(
+                extractMetadata: { $0.providerMetadata },
+                buildToolCallProviderMetadata: { $0 },
+                mergeMetadata: { previous, incoming in
+                    if let previous, let incoming, previous != incoming { throw Conflict.rejected }
+                    return previous ?? incoming
+                }
+            )
+        )
+        try tracker.processDelta(.init(
+            index: 0, id: "conflict", function: .init(name: "lookup", arguments: "{}"),
+            providerMetadata: ["google": ["thoughtSignature": "first"]]
+        ))
+        _ = collector.take()
+        #expect(throws: Conflict.self) {
+            try tracker.processDelta(.init(
+                index: 0, function: .init(arguments: "unaccepted"),
+                providerMetadata: ["google": ["thoughtSignature": "different"]]
+            ))
+        }
+        #expect(collector.take().isEmpty)
+        tracker.flush()
+        #expect(collector.take() == [
+            .toolInputEnd(id: "conflict", providerMetadata: nil),
+            .toolCall(.init(toolCallId: "conflict", toolName: "lookup", input: "{}",
+                providerMetadata: ["google": ["thoughtSignature": "first"]]))
+        ])
+    }
+
 }
 
 private final class StreamPartCollector: @unchecked Sendable {

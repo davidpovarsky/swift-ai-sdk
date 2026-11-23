@@ -49,19 +49,23 @@ public struct StreamingToolCallTrackerOptions: Sendable {
     public let emitsEmptyInitialArgumentDelta: Bool
     public let extractMetadata: (@Sendable (StreamingToolCallDelta) -> SharedV4ProviderMetadata?)?
     public let buildToolCallProviderMetadata: (@Sendable (SharedV4ProviderMetadata?) -> SharedV4ProviderMetadata?)?
+    /// Opt-in handling of metadata received after the first delta, before flush().
+    public let mergeMetadata: (@Sendable (SharedV4ProviderMetadata?, SharedV4ProviderMetadata?) throws -> SharedV4ProviderMetadata?)?
 
     public init(
         generateId: @escaping IDGenerator = generateID,
         typeValidation: StreamingToolCallTypeValidation = .none,
         emitsEmptyInitialArgumentDelta: Bool = false,
         extractMetadata: (@Sendable (StreamingToolCallDelta) -> SharedV4ProviderMetadata?)? = nil,
-        buildToolCallProviderMetadata: (@Sendable (SharedV4ProviderMetadata?) -> SharedV4ProviderMetadata?)? = nil
+        buildToolCallProviderMetadata: (@Sendable (SharedV4ProviderMetadata?) -> SharedV4ProviderMetadata?)? = nil,
+        mergeMetadata: (@Sendable (SharedV4ProviderMetadata?, SharedV4ProviderMetadata?) throws -> SharedV4ProviderMetadata?)? = nil
     ) {
         self.generateId = generateId
         self.typeValidation = typeValidation
         self.emitsEmptyInitialArgumentDelta = emitsEmptyInitialArgumentDelta
         self.extractMetadata = extractMetadata
         self.buildToolCallProviderMetadata = buildToolCallProviderMetadata
+        self.mergeMetadata = mergeMetadata
     }
 }
 
@@ -74,7 +78,7 @@ public final class StreamingToolCallTracker: @unchecked Sendable {
         let name: String
         var arguments: String
         var hasFinished: Bool
-        let metadata: SharedV4ProviderMetadata?
+        var metadata: SharedV4ProviderMetadata?
     }
 
     private var toolCalls: [TrackedToolCall?] = []
@@ -84,6 +88,7 @@ public final class StreamingToolCallTracker: @unchecked Sendable {
     private let emitsEmptyInitialArgumentDelta: Bool
     private let extractMetadata: (@Sendable (StreamingToolCallDelta) -> SharedV4ProviderMetadata?)?
     private let buildToolCallProviderMetadata: (@Sendable (SharedV4ProviderMetadata?) -> SharedV4ProviderMetadata?)?
+    private let mergeMetadata: (@Sendable (SharedV4ProviderMetadata?, SharedV4ProviderMetadata?) throws -> SharedV4ProviderMetadata?)?
 
     public init(
         enqueue: @escaping Enqueue,
@@ -95,6 +100,7 @@ public final class StreamingToolCallTracker: @unchecked Sendable {
         self.emitsEmptyInitialArgumentDelta = options.emitsEmptyInitialArgumentDelta
         self.extractMetadata = options.extractMetadata
         self.buildToolCallProviderMetadata = options.buildToolCallProviderMetadata
+        self.mergeMetadata = options.mergeMetadata
     }
 
     /// Processes one streaming tool-call delta and emits any resulting stream parts.
@@ -104,7 +110,7 @@ public final class StreamingToolCallTracker: @unchecked Sendable {
         if trackedToolCall(at: index) == nil {
             try processNewToolCall(index: index, delta: toolCallDelta)
         } else {
-            processExistingToolCall(index: index, delta: toolCallDelta)
+            try processExistingToolCall(index: index, delta: toolCallDelta)
         }
     }
 
@@ -167,9 +173,13 @@ public final class StreamingToolCallTracker: @unchecked Sendable {
         // Parsable JSON can still be a prefix of a later delta. Finalize only in flush().
     }
 
-    private func processExistingToolCall(index: Int, delta: StreamingToolCallDelta) {
+    private func processExistingToolCall(index: Int, delta: StreamingToolCallDelta) throws {
         guard var toolCall = trackedToolCall(at: index), !toolCall.hasFinished else {
             return
+        }
+
+        if let mergeMetadata {
+            toolCall.metadata = try mergeMetadata(toolCall.metadata, extractMetadata?(delta))
         }
 
         if let arguments = delta.function?.arguments {

@@ -242,6 +242,20 @@ public func convertToOpenAICompatibleChatMessages(
                     for (key, value) in metadata(from: call.providerOptions) {
                         payload[key] = value
                     }
+                    if case .string(let signature)? = call.providerOptions?["google"]?["thoughtSignature"],
+                       !signature.isEmpty {
+                        var extraContent: [String: JSONValue] = [:]
+                        if case .object(let existing)? = payload["extra_content"] {
+                            extraContent = existing
+                        }
+                        var google: [String: JSONValue] = [:]
+                        if case .object(let existing)? = extraContent["google"] {
+                            google = existing
+                        }
+                        google["thought_signature"] = .string(signature)
+                        extraContent["google"] = .object(google)
+                        payload["extra_content"] = .object(extraContent)
+                    }
                     toolCalls.append(payload)
                 case .file:
                     throw UnsupportedFunctionalityError(functionality: "file content in assistant message")

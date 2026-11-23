@@ -1,4 +1,4 @@
-name: Otzaria shared stream continuation
+name: Otzaria OpenAI-compatible thought signatures
 on:
   push:
     branches: [codex/otzaria-tool-result-continuation-20261123]
@@ -10,7 +10,7 @@ concurrency:
   group: otzaria-shared-stream-continuation
   cancel-in-progress: false
 jobs:
-  continuation:
+  thought-signatures:
     runs-on: macos-26-intel
     timeout-minutes: 55
     env:
@@ -19,39 +19,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Record exact source and Swift toolchain
-        run: |
-          mkdir -p .evidence
-          git rev-parse HEAD > .evidence/source-sha.txt
-          swift --version > .evidence/swift-version.txt
-          xcodebuild -version > .evidence/xcode-version.txt
-          uname -m > .evidence/host-architecture.txt
-          sw_vers > .evidence/host-system.txt
-          shasum -a 256 Sources/SwiftAISDK/GenerateText/StreamTextActor.swift Tests/SwiftAISDKTests/GenerateText/StreamTextToolResultContinuationTests.swift Tests/SwiftAISDKTests/GenerateText/GenerateTextTests.swift > .evidence/candidate-sha256.txt
+      - name: Admit reviewed source and authentic original method inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/otzaria-thought-signature-evidence.py prepare
       - uses: actions/cache@v4
         with:
           path: .build
           key: otzaria-stream-macos26-${{ runner.arch }}-${{ hashFiles('Package.resolved', '.evidence/swift-version.txt') }}
-      - name: Reuse authenticated original-source red regression evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/otzaria-stream-continuation-evidence.py reuse-red
-      - name: Reuse authenticated passing continuation regressions
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/otzaria-stream-continuation-evidence.py reuse-green
-      - name: Run original package regression suite
+      - name: Run the original complete package suite once
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          set +e
           swift test --xunit-output .evidence/full-suite.xml 2>&1 | tee .evidence/full-suite.log
-          python3 scripts/otzaria-stream-continuation-evidence.py full
-          git diff --exit-code -- Sources Tests Package.swift Package.resolved
-      - name: Retain exact source and test evidence
+          result=${PIPESTATUS[0]}
+          printf '%s\n' "$result" > .evidence/swift-exit.txt
+          exit "$result"
+      - name: Verify every original and new method on the exact source
+        if: always()
+        run: python3 scripts/otzaria-thought-signature-evidence.py finalize
+      - name: Seal retained evidence
+        if: always()
+        run: python3 scripts/otzaria-thought-signature-evidence.py index
+      - name: Retain exact source and actual Apple evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: otzaria-stream-continuation-evidence
+          name: otzaria-thought-signature-evidence
           path: .evidence
           if-no-files-found: error
           include-hidden-files: true

@@ -72,7 +72,29 @@ private enum OpenAICompatibleChatContract: Sendable {
     var usesCamelCaseProviderOptions: Bool { isV4 }
     var usesV4StreamBlockLifecycle: Bool { isV4 }
     var buffersToolCallsUntilName: Bool { isV4 }
-    var includesToolCallProviderMetadata: Bool { isV4 }
+    func toolCallMetadata(signature: String?, providerKey: String) -> SharedV4ProviderMetadata? {
+        guard let signature, !signature.isEmpty else { return nil }
+        // The V3 continuation must retain the wire provider identity even when
+        // the configured OpenAI-compatible provider has a generic name.
+        return [isV4 ? providerKey : "google": ["thoughtSignature": .string(signature)]]
+    }
+
+    var mergeToolCallMetadata: (@Sendable (SharedV4ProviderMetadata?, SharedV4ProviderMetadata?) throws -> SharedV4ProviderMetadata?)? {
+        guard !isV4 else { return nil }
+        return { previous, incoming in
+            if case .string(let previousSignature)? = previous?["google"]?["thoughtSignature"],
+               case .string(let incomingSignature)? = incoming?["google"]?["thoughtSignature"],
+               !previousSignature.utf8.elementsEqual(incomingSignature.utf8) {
+                throw InvalidResponseDataError(
+                    data: "extra_content.google.thought_signature",
+                    message: "Conflicting thought signatures for the same tool call."
+                )
+            }
+            // Signatures are opaque values: never concatenate or replace one.
+            return previous ?? incoming
+        }
+    }
+
     var includesEmptyStreamProviderMetadata: Bool { isV4 }
     var usesV4StreamErrorPayload: Bool { isV4 }
     var toolCallTypeValidation: StreamingToolCallTypeValidation { isV4 ? .none : .ifPresent }
@@ -209,14 +231,10 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
             for toolCall in toolCalls {
                 let function = toolCall.function
                 let toolCallId = toolCall.id ?? generateID()
-                let thoughtSignature = toolCall.extraContent?.google?.thoughtSignature.flatMap {
-                    $0.isEmpty ? nil : $0
-                }
-                let toolMetadata = options.contract.includesToolCallProviderMetadata
-                    ? thoughtSignature.map {
-                        [prepared.metadataKey: ["thoughtSignature": JSONValue.string($0)]]
-                    }
-                    : nil
+                let toolMetadata = options.contract.toolCallMetadata(
+                    signature: toolCall.extraContent?.google?.thoughtSignature,
+                    providerKey: prepared.metadataKey
+                )
                 content.append(.toolCall(LanguageModelV4ToolCall(
                     toolCallId: toolCallId,
                     toolName: function.name,
@@ -311,12 +329,9 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
                     options: StreamingToolCallTrackerOptions(
                         typeValidation: options.contract.toolCallTypeValidation,
                         emitsEmptyInitialArgumentDelta: options.contract.emitsEmptyInitialToolArgumentDelta,
-                        extractMetadata: {
-                            options.contract.includesToolCallProviderMetadata
-                                ? $0.providerMetadata
-                                : nil
-                        },
-                        buildToolCallProviderMetadata: { $0 }
+                        extractMetadata: { $0.providerMetadata },
+                        buildToolCallProviderMetadata: { $0 },
+                        mergeMetadata: options.contract.mergeToolCallMetadata
                     )
                 )
 
@@ -856,14 +871,10 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
         tracker: StreamingToolCallTracker,
         contract: OpenAICompatibleChatContract
     ) throws {
-        let thoughtSignature = delta.extraContent?.google?.thoughtSignature.flatMap {
-            $0.isEmpty ? nil : $0
-        }
-        let providerMetadata = contract.includesToolCallProviderMetadata
-            ? thoughtSignature.map {
-                [metadataKey: ["thoughtSignature": JSONValue.string($0)]]
-            }
-            : nil
+        let providerMetadata = contract.toolCallMetadata(
+            signature: delta.extraContent?.google?.thoughtSignature,
+            providerKey: metadataKey
+        )
 
         if !contract.buffersToolCallsUntilName {
             try tracker.processDelta(StreamingToolCallDelta(
@@ -872,7 +883,8 @@ private struct OpenAICompatibleChatLanguageModelCore: Sendable {
                 function: StreamingToolCallFunctionDelta(
                     name: delta.function.name,
                     arguments: delta.function.arguments
-                )
+                ),
+                providerMetadata: providerMetadata
             ))
             return
         }

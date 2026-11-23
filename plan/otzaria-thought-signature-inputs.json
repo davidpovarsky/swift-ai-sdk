@@ -1,0 +1,187 @@
+{
+  "activation_branch": "codex/otzaria-tool-result-continuation-20261123",
+  "all_original_methods_run_on_changed_source": true,
+  "baseline": {
+    "archive_bytes": 941711,
+    "archive_sha256": "da9e526111151bdf15fd910a4e57a3679a1a2df23b235f4009dfbdb2cb81125d",
+    "artifact": 14854169874,
+    "run": 45246940299,
+    "source": "07431abccbfb151ca2dab67bca6cf86fcb2bd3b8",
+    "xml_sha256": "44056144bf8017a8d41b08eb7ae338acb57c1c123a5475e915d83f45b664c93e"
+  },
+  "cache_expected": {
+    "id": 10990596689,
+    "key": "otzaria-stream-macos26-X64-663ec457683a50cfefc809500f9d13543518754c9b3a270a40b49d2af88422fb",
+    "source_scope": "same original qualification branch; cache is an optimization, never test evidence"
+  },
+  "expected_actual_methods": 4194,
+  "live_provider_called_by_qualification": false,
+  "new_method_identities": [
+    [
+      "AISDKProviderUtilsTests.StreamingToolCallTrackerTests",
+      "mergesLateMetadataBeforeFlush()"
+    ],
+    [
+      "AISDKProviderUtilsTests.StreamingToolCallTrackerTests",
+      "defaultMetadataPolicyIsUnchanged()"
+    ],
+    [
+      "AISDKProviderUtilsTests.StreamingToolCallTrackerTests",
+      "rejectedMetadataDoesNotMutateCall()"
+    ],
+    [
+      "OpenAICompatibleProviderTests.OpenAICompatibleThoughtSignatureV3Tests",
+      "nonstreamReceipt(signature:)"
+    ],
+    [
+      "OpenAICompatibleProviderTests.OpenAICompatibleThoughtSignatureV3Tests",
+      "streamReceipt(signature:)"
+    ],
+    [
+      "OpenAICompatibleProviderTests.OpenAICompatibleThoughtSignatureV3Tests",
+      "lateParallelSignatures()"
+    ],
+    [
+      "OpenAICompatibleProviderTests.OpenAICompatibleThoughtSignatureV3Tests",
+      "conflictingSignaturesFail(conflicting:)"
+    ],
+    [
+      "OpenAICompatibleProviderTests.OpenAICompatibleThoughtSignatureV3Tests",
+      "nonstringMetadataIsNotASignature(value:)"
+    ],
+    [
+      "SwiftAISDKTests.StreamTextThoughtSignatureContinuationTests",
+      "signedSequentialContinuation()"
+    ]
+  ],
+  "new_parameter_invocations": {
+    "Conflicting signatures on one streamed call fail before a completed call is emitted": 2,
+    "V3 does not coerce nonstring values into a signature": 5,
+    "V3 nonstream receipt retains only a real nonempty Google signature": 3,
+    "V3 stream receipt keeps the generic provider name independent of signature identity": 3
+  },
+  "schema": "otzaria.apple-thought-signature-qualification/1",
+  "source_review": {
+    "apple_run_owner": "root",
+    "base": "07431abccbfb151ca2dab67bca6cf86fcb2bd3b8",
+    "branch": "codex/otzaria-openai-compatible-thought-signature-20261123",
+    "live_http_cause_proven": false,
+    "new_tests": {
+      "provider_methods": 5,
+      "provider_parameter_cases": 14,
+      "real_streamText_methods": 1,
+      "tracker_methods": 3
+    },
+    "patch": {
+      "bytes": 40325,
+      "git_blob": "281210bc5bc926887eb73c7294232b8ee6baa7e5",
+      "sha256": "6c2483bad4bef2fcbdd1c169f775c576e7ff026baaf3718d0f81cd55e454e4d9"
+    },
+    "prepared_tree": "4435f7d99c0132985f08c3dc027bfb63d139ab3e",
+    "proposed_affected_gate": [
+      "StreamingToolCallTrackerTests",
+      "OpenAICompatibleProviderTests",
+      "StreamTextThoughtSignatureContinuationTests",
+      "StreamTextToolResultContinuationTests"
+    ],
+    "remaining": "Parent source review followed by original SwiftPM Apple qualification; no Live retry or source activation from this lane.",
+    "rows": [
+      {
+        "afterimage": {
+          "bytes": 8951,
+          "git_blob": "a58c6ee021a13be15ae0798258c46a51a8dc6176",
+          "sha256": "7e55ac4005738d15276098d8fcd0383641b5f5cee8c0c3940734d63cf402c0c4"
+        },
+        "path": "Sources/AISDKProviderUtils/StreamingToolCallTracker.swift",
+        "preimage": {
+          "bytes": 8223,
+          "git_blob": "d1f8bb6f40ef81d7fd76a4fe509db8e3c9254e2c",
+          "sha256": "b39b71e883be0d462c26d5ba373741827d07fc8b4009cd5213573c9766391e7f"
+        }
+      },
+      {
+        "afterimage": {
+          "bytes": 22818,
+          "git_blob": "538a50855f39b1a97334c6181ce5af5267ae1213",
+          "sha256": "1bf69b208f148c9d2d9f0ea50f16ecf6fa6991d93d112aa69704a3177d6af49e"
+        },
+        "path": "Sources/OpenAICompatibleProvider/Chat/ConvertToOpenAICompatibleChatMessages.swift",
+        "preimage": {
+          "bytes": 21987,
+          "git_blob": "fb9f959ee320f6559c06c7285cfed0a97d8e20da",
+          "sha256": "dfb38c2d203268b72be8d48474c58d8e3fc2f3913b23b1cdd40c652734690238"
+        }
+      },
+      {
+        "afterimage": {
+          "bytes": 64551,
+          "git_blob": "e6b193bfa7fb3a0590935c7eed7f206ec828e781",
+          "sha256": "5ba14177375c491891d344ac783e7d6504588c57f8a6fd3a80597370815f7e34"
+        },
+        "path": "Sources/OpenAICompatibleProvider/Chat/OpenAICompatibleChatLanguageModel.swift",
+        "preimage": {
+          "bytes": 63754,
+          "git_blob": "702fc4fda2d4e662138884c35d625a27c97c9499",
+          "sha256": "61cb97e667b46d454b7aaf5000679575c965587cad37aff917cdc0f47d545365"
+        }
+      },
+      {
+        "afterimage": {
+          "bytes": 18079,
+          "git_blob": "23f3c5daf491b0d576b979a915d3ceed11682f2c",
+          "sha256": "439f491e1b6ed4f37509768e5dd5064711ae48348295e5b58b6f6b2ee22b8d81"
+        },
+        "path": "Tests/AISDKProviderUtilsTests/StreamingToolCallTrackerTests.swift",
+        "preimage": {
+          "bytes": 13908,
+          "git_blob": "1abc0d89d76d2de63c9a75e3b08428f2e1b68d71",
+          "sha256": "1721f4220a476956d237d5329a37ca39498b78ab146d73278e8f8816bfc0c0c7"
+        }
+      },
+      {
+        "afterimage": {
+          "bytes": 10949,
+          "git_blob": "3ad908f76fa43c821b0c52cdc2edfab14173dc96",
+          "sha256": "874f9a90a648bbaf3a4a391f218e8349863c1f2bb413cbc8dce8d348d6c2eacd"
+        },
+        "path": "Tests/OpenAICompatibleProviderTests/OpenAICompatibleThoughtSignatureV3Tests.swift",
+        "preimage": null
+      },
+      {
+        "afterimage": {
+          "bytes": 9371,
+          "git_blob": "f41ec099eb399e78c15e05788b89ba16a7d6499a",
+          "sha256": "5514d88f54723ae7e6c515d67cd0494234cc942487f0a65f9a68917cb5f62d92"
+        },
+        "path": "Tests/SwiftAISDKTests/GenerateText/StreamTextThoughtSignatureContinuationTests.swift",
+        "preimage": null
+      },
+      {
+        "afterimage": {
+          "bytes": 4048,
+          "git_blob": "d831d774212e0d451495918d160ba0b30f0a859e",
+          "sha256": "248be3dd536d5bd71cd6ad1f72f2e927d11584b04999e243c908a6c4a5702b28"
+        },
+        "path": "plan/design-decisions.md",
+        "preimage": {
+          "bytes": 1822,
+          "git_blob": "9353867eca8b44cf3ace0da3a10db866c653f0ec",
+          "sha256": "3d1819cdff586851dd4dd2676e9d8f6a3162d7ed1f5563f6c1df5866a7e20c49"
+        }
+      }
+    ],
+    "schema": "otzaria.core-v3-thought-signature-source-review/1",
+    "source_only_checks": [
+      "exact seven-path boundary and index/body equality",
+      "V4 converter body byte-identical",
+      "tracker flush/type-validation/final-emission/index code byte-identical",
+      "tracker merge defaults nil; V4 explicitly nil",
+      "opaque conflicting signatures compared by UTF-8 bytes",
+      "original factory/core/tool dispatch/Package bytes unchanged",
+      "git diff --cached --check"
+    ],
+    "swift_compiled": false,
+    "tests_executed": false,
+    "worktree": "/mnt/development/projects/worktrees/swift-ai-sdk-otzaria-thought-signature-20261123"
+  }
+}
