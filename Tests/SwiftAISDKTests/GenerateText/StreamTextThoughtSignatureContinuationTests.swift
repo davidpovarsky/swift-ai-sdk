@@ -189,13 +189,13 @@ struct StreamTextThoughtSignatureContinuationTests {
         ])
         #expect(second.filter { $0["role"] == .string("tool") } == [[
             "role": .string("tool"), "tool_call_id": .string("search-call"),
-            "content": .string("\"original-search-result\"")
+            "content": .string("original-search-result")
         ]])
         #expect(third.filter { $0["role"] == .string("tool") } == [
             ["role": .string("tool"), "tool_call_id": .string("search-call"),
-                "content": .string("\"original-search-result\"")],
+                "content": .string("original-search-result")],
             ["role": .string("tool"), "tool_call_id": .string("reference-call"),
-                "content": .string("\"original-reference-result\"")]
+                "content": .string("original-reference-result")]
         ])
     }
 }

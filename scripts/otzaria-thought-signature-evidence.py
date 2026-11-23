@@ -188,11 +188,224 @@ def record_toolchain():
          "GITHUB_REF", "GITHUB_WORKFLOW", "GITHUB_JOB", "RUNNER_ARCH", "RUNNER_OS")})
 
 
+
+def admit_previous_archive(data, spec):
+    previous = spec["continuation"]["previous"]
+    require(len(data) == previous["archive_bytes"] and sha(data) == previous["archive_sha256"],
+            "Previous actual full-suite archive changed")
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        names = archive.namelist()
+        require(len(names) == len(set(names)) and all(not PurePosixPath(n).is_absolute()
+                and ".." not in PurePosixPath(n).parts for n in names), "Unsafe previous archive")
+        require(archive.testzip() is None, "Previous archive CRC failed")
+        files = {name: archive.read(name) for name in names}
+    index_data = files["EVIDENCE_INDEX.json"]
+    require(sha(index_data) == previous["index_sha256"], "Previous original index changed")
+    rows = json.loads(index_data)["files"]
+    require(len(rows) == 25 and len({r["path"] for r in rows}) == 25
+            and {r["path"] for r in rows} == set(files) - {"EVIDENCE_INDEX.json"},
+            "Previous evidence index is incomplete")
+    for row in rows:
+        body = files[row["path"]]
+        require(len(body) == row["bytes"] and sha(body) == row["sha256"],
+                "Previous evidence member changed: " + row["path"])
+    context = json.loads(files["RUN_CONTEXT.json"])
+    require(context["GITHUB_REPOSITORY"] == REPOSITORY
+            and context["GITHUB_SHA"] == previous["source"]
+            and context["GITHUB_RUN_ID"] == str(previous["run"])
+            and context["GITHUB_RUN_ATTEMPT"] == "1", "Previous execution identity changed")
+    require(files["SOURCE_BEFORE.json"] == files["SOURCE_AFTER.json"]
+            and sha(files["SOURCE_BEFORE.json"]) == previous["source_index_sha256"],
+            "Previous source changed before/after its actual execution")
+    source = json.loads(files["SOURCE_BEFORE.json"])
+    require(source["source"] == previous["source"] and source["tree"] == previous["tree"]
+            and len(source["files"]) == 1401, "Previous exact source identity changed")
+    require(files["swift-exit.txt"].strip() == b"1"
+            and json.loads(files["QUALIFICATION_RESULT.json"])["status"] == "QUALIFICATION_NOT_PASSED",
+            "The historical aggregate failure must remain a failure")
+    require(sha(files["full-suite-swift-testing.xml"]) == previous["xml_sha256"],
+            "Previous actual XML changed")
+    cases, identities = xml_inventory(files["full-suite-swift-testing.xml"], 4194)
+    _, original = xml_inventory(files["baseline/full-suite-swift-testing.xml"], 4185)
+    require(sha(files["baseline/full-suite-swift-testing.xml"]) == spec["baseline"]["xml_sha256"]
+            and identities == original | {tuple(x) for x in spec["new_method_identities"]},
+            "Previous method identity closure changed")
+    failed = [x for x in cases if x.find("failure") is not None]
+    selected = tuple(spec["continuation"]["selected_identity"])
+    require(len(failed) == 1 and (failed[0].get("classname"), failed[0].get("name")) == selected
+            and len(failed[0].findall("failure")) == 2
+            and not any(x.find("error") is not None or x.find("skipped") is not None for x in cases),
+            "Only the exact known new fixture expectation may have failed")
+    passed_cases([x for x in cases if x is not failed[0]])
+    log = files["full-suite.log"].decode()
+    for title, expected in spec["new_parameter_invocations"].items():
+        count = sum("Test case passing 1 argument " in line
+                    and line.endswith(' to "' + title + '" started.') for line in log.splitlines())
+        require(count == expected, "Previous parameter coverage changed: " + title)
+    for reason in (".stop", ".toolCalls"):
+        marker = "Test case passing 1 argument reason → " + reason + \
+            ' to "Completed client tools reach subsequent model steps with original result identities" started.'
+        require(log.count(marker) == 1, "Previous finish-reason vector changed")
+    return files, source, identities - {selected}
+
+
+def continuation_source_binding(spec, previous_source, current_source):
+    continuation = spec["continuation"]
+    previous = continuation["previous"]
+    allowed = {SELF_PATH, str(SPEC_PATH), WORKFLOW_PATH, continuation["test_path"]}
+    require(set(command(["git", "diff", "--name-only", previous["source"], "HEAD"])
+                .decode().splitlines()) == allowed, "Continuation changed more than its four owned paths")
+    require(command(["git", "rev-parse", "HEAD^"]).decode().strip() == previous["source"],
+            "Continuation is not an immediate child of the actual full-suite source")
+    old = {r["path"]: r for r in previous_source["files"]}
+    new = {r["path"]: r for r in current_source["files"]}
+    require(len(old) == 1401 and set(old) == set(new), "Execution input closure changed")
+    require(all(old[p] == new[p] for p in old if p not in allowed),
+            "A retained passing test or its product/dependency inputs changed")
+    require(command(["git", "rev-parse", previous["source"] + "^{tree}"])
+            .decode().strip() == previous["tree"], "Previous Git tree disagrees with retained proof")
+    object_ids = "".join(r["git_blob"] + "\n" for r in previous_source["files"]).encode()
+    batch = subprocess.check_output(["git", "cat-file", "--batch"], input=object_ids, timeout=120)
+    offset = 0
+    for row in previous_source["files"]:
+        end = batch.index(b"\n", offset)
+        oid, kind, size = batch[offset:end].decode().split()
+        body = batch[end + 1:end + 1 + int(size)]
+        offset = end + 2 + int(size)
+        require(oid == row["git_blob"] and kind == "blob"
+                and len(body) == row["bytes"] and sha(body) == row["sha256"],
+                "Retained original Git blob disagrees: " + row["path"])
+    require(offset == len(batch), "Unexpected retained Git object data")
+    listing = command(["git", "ls-tree", "-rz", previous["source"], "--",
+                       "Sources", "Tests", "Package.swift", "Package.resolved", str(SPEC_PATH),
+                       SELF_PATH, WORKFLOW_PATH, "plan/design-decisions.md"])
+    mapped = {}
+    for item in listing.split(b"\0"):
+        if item:
+            info, path = item.split(b"\t", 1)
+            mode, kind, oid = info.decode().split()
+            require(kind == "blob", "Unexpected previous source object")
+            mapped[os.fsdecode(path)] = (mode, oid)
+    require(mapped == {p: (r["mode"], r["git_blob"]) for p, r in old.items()},
+            "Retained source inventory is not the complete original Git tree closure")
+    before = command(["git", "show", previous["source"] + ":" + continuation["test_path"]])
+    expected = before
+    for change in continuation["literal_corrections"]:
+        source, target = change["before"].encode(), change["after"].encode()
+        require(expected.count(source) == change["count"], "Unexpected fixture literal multiplicity")
+        expected = expected.replace(source, target)
+    require(Path(continuation["test_path"]).read_bytes() == expected,
+            "The test changed beyond three exact original text-result expectations")
+    for item in continuation["original_contract"]:
+        body = Path(item["path"]).read_bytes()
+        require(len(body) == item["bytes"] and sha(body) == item["sha256"],
+                "Original text serialization contract changed")
+    return {"same_input_paths": len(old), "unchanged_inputs": len(old) - len(allowed),
+            "changed_inputs": sorted(allowed), "product_and_all_retained_tests_unchanged": True,
+            "only_three_expected_text_literals_changed": True}
+
+
+def check_same_toolchain(files):
+    for name in ("swift-version.txt", "xcode-version.txt", "host-architecture.txt",
+                 "host-system.txt", "developer-directory.txt", "sdk-version.txt", "sdk-build.txt",
+                 "COMPILER_IDENTITY.json"):
+        require((ROOT / name).read_bytes() == files[name],
+                "Retained results cannot be reused with a different compiler/environment: " + name)
+
+
+def retain_previous(spec):
+    previous = spec["continuation"]["previous"]
+    def api(path):
+        return command(["gh", "api", "repos/" + REPOSITORY + "/" + path])
+    run = json.loads(api("actions/runs/" + str(previous["run"])))
+    artifact = json.loads(api("actions/artifacts/" + str(previous["artifact"])))
+    require(run["id"] == previous["run"] and run["head_sha"] == previous["source"]
+            and run["run_attempt"] == 1 and run["status"] == "completed"
+            and run["conclusion"] == "failure", "Previous run provenance changed")
+    require(artifact["id"] == previous["artifact"] and not artifact["expired"]
+            and artifact["size_in_bytes"] == previous["archive_bytes"]
+            and artifact["digest"] == "sha256:" + previous["archive_sha256"]
+            and artifact["workflow_run"]["id"] == previous["run"]
+            and artifact["workflow_run"]["head_sha"] == previous["source"],
+            "Previous artifact provenance changed")
+    data = api("actions/artifacts/" + str(previous["artifact"]) + "/zip")
+    files, source, passed = admit_previous_archive(data, spec)
+    binding = continuation_source_binding(spec, source,
+                                          json.loads((ROOT / "SOURCE_BEFORE.json").read_bytes()))
+    check_same_toolchain(files)
+    target = ROOT / "previous"
+    target.mkdir()
+    (target / "actual-full-suite.zip").write_bytes(data)
+    write_json(target / "run.json", run)
+    write_json(target / "artifact.json", artifact)
+    write_json(ROOT / "RETAINED_PASS_ADMISSION.json", {
+        **previous, "actual_previous_methods": 4194, "retained_passing_methods": len(passed),
+        "previous_failed_methods": 1, "previous_failure_preserved": True, "source_binding": binding,
+        "compiler_and_environment_equal": True, "previous_test_binary_hash_retained": False,
+        "previous_test_binary_hash_absence": "Original finalizer stopped at swift exit 1.",
+        "replay_of_retained_methods_permitted": False})
+
+
+def observe_continuation(spec):
+    after = source_inventory(spec)
+    write_json(ROOT / "SOURCE_AFTER.json", after)
+    require(after == json.loads((ROOT / "SOURCE_BEFORE.json").read_bytes()),
+            "Source changed during focused execution")
+    files, previous_source, retained = admit_previous_archive(
+        (ROOT / "previous/actual-full-suite.zip").read_bytes(), spec)
+    binding = continuation_source_binding(spec, previous_source, after)
+    check_same_toolchain(files)
+    compiler = json.loads((ROOT / "COMPILER_IDENTITY.json").read_bytes())
+    body = Path(compiler["path"]).read_bytes()
+    require(len(body) == compiler["bytes"] and sha(body) == compiler["sha256"],
+            "Compiler changed during focused execution")
+    binaries = list(Path(".build").glob(
+        "*-apple-macosx/debug/SwiftAISDKPackageTests.xctest/Contents/MacOS/SwiftAISDKPackageTests"))
+    require(len(binaries) == 1, "Expected the actual complete package test binary")
+    binary = binaries[0]
+    body = binary.read_bytes()
+    binary_sha = sha(body)
+    write_json(ROOT / "TEST_BINARY_IDENTITY.json", {
+        "path": str(binary), "bytes": len(body), "sha256": binary_sha})
+    require((ROOT / "swift-exit.txt").read_text().strip() == "0",
+            "Original focused swift test did not exit successfully")
+    data = (ROOT / "focused-suite-swift-testing.xml").read_bytes()
+    cases, actual = xml_inventory(data, 1)
+    passed_cases(cases)
+    require(actual == {tuple(spec["continuation"]["selected_identity"])} and not actual & retained,
+            "A retained test was replayed or the failed test was not executed")
+    log = (ROOT / "focused-suite.log").read_text()
+    title = '"Original streamText sends exact signatures and tool results on both later requests after finish stop"'
+    require(sum(line.strip() == "◇ Test " + title + " started." for line in log.splitlines()) == 1,
+            "Expected exactly one actual selected Swift Testing invocation")
+    extra = ROOT / "focused-suite.xml"
+    if extra.exists():
+        require(not list(ET.fromstring(extra.read_bytes()).iter("testcase")),
+                "An unselected XCTest method was replayed")
+    require(len(retained | actual) == 4194, "The complete logical coverage is not 4194")
+    return {
+        "status": "ACTUAL_APPLE_PACKAGE_QUALIFIED_WITH_RETAINED_PASSES",
+        "source": after["source"], "tree": after["tree"],
+        "actual_focused_methods": 1, "retained_actual_passing_methods": 4193,
+        "qualified_logical_methods": 4194, "new_logical_methods_qualified": 9,
+        "new_scenarios_qualified": 18, "failed_methods": 0, "errors": 0,
+        "skipped_methods": 0, "not_run_obligations": 0,
+        "previous_run": spec["continuation"]["previous"]["run"],
+        "previous_aggregate_conclusion": "failure", "previous_failure_preserved": True,
+        "source_binding": binding, "source_and_compiler_unchanged": True,
+        "xml_sha256": sha(data), "test_binary_sha256": binary_sha,
+        "retained_tests_replayed": 0, "live_provider_called": False,
+        "app_native_acceptance_claimed": False}
+
+
+
 def prepare(spec):
     ROOT.mkdir(exist_ok=True)
     write_json(ROOT / "SOURCE_BEFORE.json", source_inventory(spec))
     record_toolchain()
     retain_baseline(spec)
+    if "continuation" in spec:
+        retain_previous(spec)
 
 
 def observe_full(spec):
@@ -276,7 +489,7 @@ def main():
         print(json.dumps(source_inventory(spec)))
     elif args.mode == "finalize":
         try:
-            result = observe_full(spec)
+            result = observe_continuation(spec) if "continuation" in spec else observe_full(spec)
         except Exception as error:
             write_json(ROOT / "QUALIFICATION_RESULT.json", {
                 "status": "QUALIFICATION_NOT_PASSED",
