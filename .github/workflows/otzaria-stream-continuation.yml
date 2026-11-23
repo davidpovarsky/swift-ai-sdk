@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   continuation:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 55
     env:
       AGENT: "1"
@@ -24,11 +24,13 @@ jobs:
           git rev-parse HEAD > .evidence/source-sha.txt
           swift --version > .evidence/swift-version.txt
           xcodebuild -version > .evidence/xcode-version.txt
+          uname -m > .evidence/host-architecture.txt
+          sw_vers > .evidence/host-system.txt
           shasum -a 256 Sources/SwiftAISDK/GenerateText/StreamTextActor.swift Tests/SwiftAISDKTests/GenerateText/StreamTextToolResultContinuationTests.swift > .evidence/candidate-sha256.txt
       - uses: actions/cache@v4
         with:
           path: .build
-          key: otzaria-stream-macos26-${{ hashFiles('Package.resolved', '.evidence/swift-version.txt') }}
+          key: otzaria-stream-macos26-${{ runner.arch }}-${{ hashFiles('Package.resolved', '.evidence/swift-version.txt') }}
       - name: Reproduce the two regressions on the original implementation
         shell: bash
         run: |
