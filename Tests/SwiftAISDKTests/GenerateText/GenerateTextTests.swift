@@ -832,6 +832,11 @@ struct GenerateTextTests {
             "tool1": tool(
                 inputSchema: toolInputSchema(),
                 execute: { _, options in
+                    // Pre-aborted calls are rejected before entering this closure.
+                    // Change the signal only after execution has actually started.
+                    #expect(options.abortSignal?() == false)
+                    abortFlag.abort()
+                    #expect(options.abortSignal?() == true)
                     await capturedOptions.append(options)
                     return .value(JSONValue.string("tool result"))
                 }
@@ -847,7 +852,6 @@ struct GenerateTextTests {
             ) as DefaultGenerateTextResult<JSONValue>
         }
 
-        abortFlag.abort()
         _ = try await task.value
 
         let recorded = await capturedOptions.entries()
