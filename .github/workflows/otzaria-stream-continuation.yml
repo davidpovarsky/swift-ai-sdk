@@ -41,8 +41,8 @@ jobs:
           git show e7bf34111e603ca977becd007dd4e5bb109af857:"$source_path" > "$source_path"
           shasum -a 256 "$source_path" > .evidence/baseline-sha256.txt
           set +e
-          swift test --filter StreamTextToolResultContinuationTests --xunit-output .evidence/red.xml > .evidence/red.log 2>&1
-          baseline_exit=$?
+          swift test --filter StreamTextToolResultContinuationTests --xunit-output .evidence/red.xml 2>&1 | tee .evidence/red.log
+          baseline_exit=${PIPESTATUS[0]}
           set -e
           echo "$baseline_exit" > .evidence/red-exit.txt
           python3 - <<'PY'
@@ -50,6 +50,7 @@ jobs:
           root = pathlib.Path(".evidence")
           code = int((root / "red-exit.txt").read_text())
           assert code != 0, "Original source unexpectedly passed; reproduction not established"
+          assert (root / "red.xml").is_file(), "Baseline produced no test report; inspect red.log for the actual build or runner failure"
           document = ET.parse(root / "red.xml")
           cases = document.findall(".//testcase")
           failed = [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
@@ -81,4 +82,5 @@ jobs:
           name: otzaria-stream-continuation-evidence
           path: .evidence
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14

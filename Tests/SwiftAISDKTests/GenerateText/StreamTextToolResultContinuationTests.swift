@@ -104,7 +104,7 @@ struct StreamTextToolResultContinuationTests {
         #expect(await calls.values() == ["search", "resolve"])
         let steps = try await result.steps
         #expect(steps.count == 3)
-        #expect(steps.first?.finishReason == reason)
+        #expect(steps.first?.finishReason.rawValue == reason.rawValue)
         #expect(steps.last?.finishReason == .stop)
         let requests = model.doStreamCalls
         try #require(requests.count == 3)
