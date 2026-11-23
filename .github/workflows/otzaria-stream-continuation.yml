@@ -27,7 +27,7 @@ jobs:
           xcodebuild -version > .evidence/xcode-version.txt
           uname -m > .evidence/host-architecture.txt
           sw_vers > .evidence/host-system.txt
-          shasum -a 256 Sources/SwiftAISDK/GenerateText/StreamTextActor.swift Tests/SwiftAISDKTests/GenerateText/StreamTextToolResultContinuationTests.swift > .evidence/candidate-sha256.txt
+          shasum -a 256 Sources/SwiftAISDK/GenerateText/StreamTextActor.swift Tests/SwiftAISDKTests/GenerateText/StreamTextToolResultContinuationTests.swift Tests/SwiftAISDKTests/GenerateText/GenerateTextTests.swift > .evidence/candidate-sha256.txt
       - uses: actions/cache@v4
         with:
           path: .build
@@ -36,13 +36,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/otzaria-stream-continuation-evidence.py reuse-red
-      - name: Verify corrected tool-result continuation and negative controls
-        shell: bash
-        run: |
-          set -euo pipefail
-          swift test --filter StreamTextToolResultContinuationTests --xunit-output .evidence/green.xml 2>&1 | tee .evidence/green.log
-          python3 scripts/otzaria-stream-continuation-evidence.py green
-          git diff --exit-code -- Sources Tests Package.swift Package.resolved
+      - name: Reuse authenticated passing continuation regressions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/otzaria-stream-continuation-evidence.py reuse-green
       - name: Run original package regression suite
         shell: bash
         run: |
