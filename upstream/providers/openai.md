@@ -567,3 +567,15 @@
   - `Tests/SwiftAISDKTests/Transcribe/StreamTranscribeTests.swift`
 
 - JSON Schema validation: Swift `JSONSchemaValidator` supports `$ref` (local `#/...`) and conditional keywords (`if`/`then`/`else`). Unsupported keywords remain permissive by design.
+
+## Scoped prompt-cache controls extension (2026-11-24)
+
+- Owner/scope: Hanlin provider-cache lane, provider:openai/prompt-cache-controls.
+- Status: partial; implementation and regression fixtures authored, native execution is owned by the integration lane and has not been run in this worktree.
+- Source baseline remains 3f38f1302764635c9991d0d00fd7b12471a5373c; this is an intentional provider API extension, not a Vercel baseline refresh or a renewed whole-provider parity claim.
+- Official references: [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching) and [Responses create](https://developers.openai.com/api/reference/resources/responses/methods/create), checked on 2026-11-24.
+- Responses options accept the 12-hour minimum lifetime, explicit prewarm, and a comparison response ID. Serialization uses prompt_cache_options.prewarm and comparison_response_id. Invalid types fail at the existing provider option boundary.
+- Chat retains its 30-minute contract and rejects the Responses-only controls. Ordinary chat does not automatically prewarm. Existing implicit/default and legacy retention behavior remains separate.
+- Existing ai.streamText spans now retain known cached-read, cached-write and uncached-input counts from normalized usage details. Absent counts remain absent; recording token counts does not enable prompt or response capture.
+- Regression suite: OpenAIPromptCacheControlTests drives the original Responses provider with a captured fake fetch and original streamText with the SDK mock model/tracer; no billable provider request is made.
+- Local component catalog inspected from the shared continuation checkout. It has no component rows because the external Vercel checkout is unavailable there; the durable baseline records, original Swift serializer/tests, and primary API documentation are the evidence for this slice.

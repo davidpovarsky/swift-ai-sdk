@@ -1,3 +1,4 @@
+import Foundation
 import AISDKProvider
 import AISDKProviderUtils
 
@@ -8,15 +9,25 @@ public enum OpenAIPromptCacheMode: String, Sendable, Equatable {
 
 public enum OpenAIPromptCacheTTL: String, Sendable, Equatable {
     case thirtyMinutes = "30m"
+    case twelveHours = "12h"
 }
 
 public struct OpenAIPromptCacheOptions: Sendable, Equatable {
     public var mode: OpenAIPromptCacheMode?
     public var ttl: OpenAIPromptCacheTTL?
+    public var prewarm: Bool?
+    public var comparisonResponseId: String?
 
-    public init(mode: OpenAIPromptCacheMode? = nil, ttl: OpenAIPromptCacheTTL? = nil) {
+    public init(
+        mode: OpenAIPromptCacheMode? = nil,
+        ttl: OpenAIPromptCacheTTL? = nil,
+        prewarm: Bool? = nil,
+        comparisonResponseId: String? = nil
+    ) {
         self.mode = mode
         self.ttl = ttl
+        self.prewarm = prewarm
+        self.comparisonResponseId = comparisonResponseId
     }
 
     var jsonValue: JSONValue {
@@ -27,13 +38,16 @@ public struct OpenAIPromptCacheOptions: Sendable, Equatable {
         if let ttl {
             value["ttl"] = .string(ttl.rawValue)
         }
+        if let prewarm { value["prewarm"] = .bool(prewarm) }
+        if let comparisonResponseId { value["comparison_response_id"] = .string(comparisonResponseId) }
         return .object(value)
     }
 }
 
 func parseOpenAIPromptCacheOptions(
     _ value: JSONValue?,
-    vendor: String = "openai"
+    vendor: String = "openai",
+    supportsResponsesControls: Bool = false
 ) throws -> OpenAIPromptCacheOptions? {
     guard let value, value != .null else {
         return nil
@@ -61,10 +75,31 @@ func parseOpenAIPromptCacheOptions(
               let ttl = OpenAIPromptCacheTTL(rawValue: rawTTL) else {
             throw TypeValidationError.wrap(
                 value: ttlValue,
-                cause: SchemaValidationIssuesError(vendor: vendor, issues: "promptCacheOptions.ttl must be 30m")
+                cause: SchemaValidationIssuesError(vendor: vendor, issues: "promptCacheOptions.ttl must be one of 30m, 12h")
             )
         }
         result.ttl = ttl
+    }
+
+    if let prewarmValue = object["prewarm"] {
+        guard case .bool(let prewarm) = prewarmValue else {
+            throw TypeValidationError.wrap(value: prewarmValue,
+                cause: SchemaValidationIssuesError(vendor: vendor, issues: "promptCacheOptions.prewarm must be boolean"))
+        }
+        result.prewarm = prewarm
+    }
+    if let comparisonValue = object["comparisonResponseId"], comparisonValue != .null {
+        guard case .string(let comparison) = comparisonValue,
+              !comparison.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw TypeValidationError.wrap(value: comparisonValue,
+                cause: SchemaValidationIssuesError(vendor: vendor, issues: "promptCacheOptions.comparisonResponseId must be a nonempty string"))
+        }
+        result.comparisonResponseId = comparison
+    }
+    if !supportsResponsesControls,
+       result.ttl == .twelveHours || result.prewarm != nil || result.comparisonResponseId != nil {
+        throw TypeValidationError.wrap(value: value,
+            cause: SchemaValidationIssuesError(vendor: vendor, issues: "12h, prewarm and comparisonResponseId require the Responses API"))
     }
 
     return result
