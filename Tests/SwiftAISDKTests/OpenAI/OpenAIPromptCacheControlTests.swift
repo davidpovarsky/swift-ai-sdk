@@ -83,7 +83,8 @@ struct OpenAIPromptCacheControlTests {
         }
     }
 
-    @Test("Original stream spans preserve cache writes while excluding prompt and response content")
+    @Test("Original stream spans preserve cache writes while excluding prompt and response content",
+          .timeLimit(.minutes(1)))
     func streamTelemetryRetainsCacheWriteAccounting() async throws {
         let parts: [LanguageModelV3StreamPart] = [
             .textStart(id: "text", providerMetadata: nil),
@@ -100,13 +101,30 @@ struct OpenAIPromptCacheControlTests {
                 continuation.finish()
             }
         )))
-        let tracer = MockTracer()
+        let (endedRootSpan, endedRootContinuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { endedRootContinuation.finish() }
+        let tracer = MockTracer(onSpanEnd: { name in
+            guard name == "ai.streamText" else { return }
+            endedRootContinuation.yield(name)
+            endedRootContinuation.finish()
+        })
         let result: DefaultStreamTextResult<JSONValue, JSONValue> = try streamText(
             model: .v3(model), prompt: "private prompt",
             experimentalTelemetry: .init(isEnabled: true, recordInputs: false, recordOutputs: false, tracer: tracer)
         )
         _ = try await result.readAllText()
-        _ = try await result.waitForFinish()
+        let finish = try await result.waitForFinish()
+        #expect(finish.totalUsage.inputTokenDetails.cacheReadTokens == 30)
+        #expect(finish.totalUsage.inputTokenDetails.cacheWriteTokens == 50)
+        #expect(finish.totalUsage.inputTokenDetails.noCacheTokens == 20)
+
+        // Result completion precedes the provider task's final telemetry writes.
+        // Observe the real span lifetime instead of racing an unfinished snapshot.
+        var endIterator = endedRootSpan.makeAsyncIterator()
+        let endedName = await endIterator.next()
+        #expect(endedName == "ai.streamText")
         let span = try #require(tracer.spanRecords.first { $0.name == "ai.streamText" })
         #expect(span.attributes["ai.usage.cachedInputTokens"] == .int(30))
         #expect(span.attributes["ai.usage.cacheWriteTokens"] == .int(50))
