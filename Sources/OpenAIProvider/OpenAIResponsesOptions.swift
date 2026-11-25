@@ -408,7 +408,7 @@ private func parseOpenAIResponsesProviderOptions(dict: [String: JSONValue]) thro
     options.parallelToolCalls = try parseOptionalBool(dict, key: "parallelToolCalls")
     options.previousResponseId = try parseOptionalString(dict, key: "previousResponseId")
     options.promptCacheKey = try parseOptionalString(dict, key: "promptCacheKey")
-    options.promptCacheOptions = try parseOpenAIPromptCacheOptions(dict["promptCacheOptions"])
+    options.promptCacheOptions = try parseOpenAIPromptCacheOptions(dict["promptCacheOptions"], supportsResponsesControls: true)
     if let retentionValue = dict["promptCacheRetention"], retentionValue != .null {
         guard case .string(let retention) = retentionValue else {
             throw TypeValidationError.wrap(value: retentionValue, cause: SchemaValidationIssuesError(vendor: "openai", issues: "promptCacheRetention must be a string"))

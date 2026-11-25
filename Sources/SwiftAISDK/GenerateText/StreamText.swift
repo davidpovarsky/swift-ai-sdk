@@ -2011,8 +2011,14 @@ private func buildStreamTextRootTelemetryAttributes(
     if let reasoningTokens = totalUsage.reasoningTokens {
         attributes["ai.usage.reasoningTokens"] = .value(.int(reasoningTokens))
     }
-    if let cachedInputTokens = totalUsage.cachedInputTokens {
+    if let cachedInputTokens = totalUsage.inputTokenDetails.cacheReadTokens {
         attributes["ai.usage.cachedInputTokens"] = .value(.int(cachedInputTokens))
+    }
+    if let cacheWriteTokens = totalUsage.inputTokenDetails.cacheWriteTokens {
+        attributes["ai.usage.cacheWriteTokens"] = .value(.int(cacheWriteTokens))
+    }
+    if let noCacheTokens = totalUsage.inputTokenDetails.noCacheTokens {
+        attributes["ai.usage.noCacheTokens"] = .value(.int(noCacheTokens))
     }
 
     attributes["gen_ai.response.finish_reasons"] = .value(.stringArray([finishReason.rawValue]))

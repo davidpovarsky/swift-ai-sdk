@@ -32,10 +32,13 @@ final class MockTracer: Tracer, @unchecked Sendable {
         private var statusStorage: SpanStatus?
         private let lock = NSLock()
         private let context: SpanContext
+        private let onEnd: (@Sendable (String) -> Void)?
+        private var hasEnded = false
 
-        init(name: String, attributes: Attributes?) {
+        init(name: String, attributes: Attributes?, onEnd: (@Sendable (String) -> Void)? = nil) {
             self.name = name
             self.attributesStorage = attributes ?? [:]
+            self.onEnd = onEnd
             self.context = SpanContext(traceId: "test-trace-id", spanId: "test-span-id", traceFlags: 0)
         }
 
@@ -96,7 +99,12 @@ final class MockTracer: Tracer, @unchecked Sendable {
         }
 
         func end() {
-            // No-op for tests.
+            let shouldNotify = withLock {
+                guard !hasEnded else { return false }
+                hasEnded = true
+                return true
+            }
+            if shouldNotify { onEnd?(name) }
         }
 
         func isRecording() -> Bool {
@@ -125,6 +133,11 @@ final class MockTracer: Tracer, @unchecked Sendable {
 
     private let lock = NSLock()
     private var spans: [MockSpan] = []
+    private let onSpanEnd: (@Sendable (String) -> Void)?
+
+    init(onSpanEnd: (@Sendable (String) -> Void)? = nil) {
+        self.onSpanEnd = onSpanEnd
+    }
 
     var spanRecords: [SpanRecord] {
         withLock {
@@ -140,7 +153,7 @@ final class MockTracer: Tracer, @unchecked Sendable {
     }
 
     func startSpan(name: String, options: SpanOptions?) -> any Span {
-        let span = MockSpan(name: name, attributes: options?.attributes)
+        let span = MockSpan(name: name, attributes: options?.attributes, onEnd: onSpanEnd)
         withLock {
             spans.append(span)
         }
@@ -152,7 +165,7 @@ final class MockTracer: Tracer, @unchecked Sendable {
         options: SpanOptions?,
         _ fn: @Sendable (any Span) async throws -> T
     ) async rethrows -> T {
-        let span = MockSpan(name: name, attributes: options?.attributes)
+        let span = MockSpan(name: name, attributes: options?.attributes, onEnd: onSpanEnd)
         withLock {
             spans.append(span)
         }

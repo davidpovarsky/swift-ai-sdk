@@ -62,3 +62,21 @@ duplicate/conflicting values, and the real `streamText` path through captured
 mocked fetch requests and two local tools with `finish_reason: stop`.
 Source preparation alone does not establish an Apple test pass or the HTTP
 cause of the observed Live failure; those remain separately qualified.
+
+## Current OpenAI cache controls and stream usage attributes (2026-11-24)
+
+This narrowly extends the existing original provider options with current
+Responses cache lifetime/prewarm/diagnostic fields. The Chat serializer keeps
+its own supported control set. Cache prewarming is an explicit direct-provider
+operation, never an automatic side effect of chat or engine construction.
+The lifetime is a minimum reuse window, not a data deletion deadline.
+
+The original stream telemetry attribute builder reads normalized input token
+details and adds cache-write and uncached counts beside cached reads. This
+repairs an observability omission without adding a parallel telemetry stream,
+global tracer, content logging, exporter, or network destination.
+
+References and authored fixture names are recorded in upstream/providers/openai.md.
+This is an intentional API/observability extension to the existing Swift fork,
+not a broad upstream parity refresh. Native compilation and test evidence must
+be supplied by the integration owner before this new slice is described as verified.
