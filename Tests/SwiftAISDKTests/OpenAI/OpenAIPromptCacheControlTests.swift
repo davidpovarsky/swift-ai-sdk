@@ -89,7 +89,7 @@ struct OpenAIPromptCacheControlTests {
             .textStart(id: "text", providerMetadata: nil),
             .textDelta(id: "text", delta: "private response", providerMetadata: nil),
             .textEnd(id: "text", providerMetadata: nil),
-            .finish(finishReason: .stop,
+            .finish(finishReason: .init(unified: .stop, raw: "stop"),
                 usage: .init(inputTokens: .init(total: 100, noCache: 20, cacheRead: 30, cacheWrite: 50),
                     outputTokens: .init(total: 4)),
                 providerMetadata: nil)
